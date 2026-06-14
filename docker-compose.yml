@@ -1,0 +1,29 @@
+services:
+  app:
+    build: .
+    image: dragodinde-notif:${APP_VERSION:-0.2.0}
+    container_name: dragodinde-notif
+    ports:
+      # host:container — the container always listens on 3000
+      - "${HOST_PORT:-3000}:3000"
+    # DISCORD_WEBHOOK_URL is read from .env (see .env.example) or set it from the ⚙︎ UI.
+    environment:
+      PORT: 3000
+      TICK_MS: ${TICK_MS:-10000}
+      DATABASE_FILE: /data/data.db
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+    volumes:
+      - dragodinde-data:/data
+    restart: unless-stopped
+    init: true
+    # hardening — the app only writes to /data (SQLite + WAL); the rest is read-only
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  dragodinde-data:
