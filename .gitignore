@@ -16,3 +16,7 @@ data.db-shm
 .DS_Store
 .vscode/
 *.log
+
+# Vendored Claude Code / agent skills — reproducible from skills-lock.json
+.claude/skills/
+.agents/skills/
