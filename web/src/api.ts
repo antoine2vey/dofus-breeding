@@ -1,4 +1,12 @@
-import type { AppState, Dragodinde, DragoPatch, Enclos, EnclosPatch } from "./types";
+import type {
+  AppState,
+  CrossInput,
+  Dragodinde,
+  DragoPatch,
+  Enclos,
+  EnclosPatch,
+  SeedInput,
+} from "./types";
 
 async function json<T>(res: Response): Promise<T> {
   if (res.status >= 500) throw new Error(`HTTP ${res.status}`);
@@ -19,10 +27,18 @@ export const api = {
       body: JSON.stringify(body),
     }).then((r) => json<{ ok?: boolean; error?: string }>(r)),
 
-  addDragodinde: (enclosId: number) =>
-    fetch(`/api/enclos/${enclosId}/dragodinde`, { method: "POST" }).then((r) =>
-      json<Dragodinde | { error: string }>(r),
-    ),
+  addDragodinde: (enclosId: number, seed?: SeedInput) =>
+    fetch(`/api/enclos/${enclosId}/dragodinde`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(seed ?? {}),
+    }).then((r) => json<Dragodinde | { error: string }>(r)),
+  breed: (input: CrossInput) =>
+    fetch("/api/breed", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }).then((r) => json<Dragodinde | { error: string }>(r)),
   removeDragodinde: (id: number) =>
     fetch(`/api/dragodinde/${id}`, { method: "DELETE" }).then((r) =>
       json<{ ok?: boolean; error?: string }>(r),

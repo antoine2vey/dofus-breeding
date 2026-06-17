@@ -5,6 +5,7 @@ import {
   type Enclos,
   type FocusKey,
   type FuelKey,
+  type Sex,
   type StatKey,
   DEFAULT_FOCUS,
   FOCUSABLE,
@@ -42,6 +43,12 @@ interface DragoRow {
   readonly stat_amour: number;
   readonly stat_serenity: number;
   readonly notified: number;
+  readonly color: string;
+  readonly sex: string;
+  readonly fertile: number;
+  readonly keeper: number;
+  readonly parent_a_id: number | null;
+  readonly parent_b_id: number | null;
 }
 
 const dragoFromRow = (r: DragoRow): Dragodinde => ({
@@ -54,6 +61,12 @@ const dragoFromRow = (r: DragoRow): Dragodinde => ({
     serenity: r.stat_serenity,
   },
   notified: r.notified === 1,
+  color: r.color ?? "",
+  sex: (r.sex === "M" ? "M" : "F") as Sex,
+  fertile: (r.fertile ?? 1) === 1,
+  keeper: (r.keeper ?? 0) === 1,
+  parentA: r.parent_a_id ?? null,
+  parentB: r.parent_b_id ?? null,
 });
 
 const fuelFromRow = (r: EnclosRow): Record<FuelKey, number> => ({
@@ -73,6 +86,27 @@ export interface EnclosPatch {
 export interface DragoPatch {
   readonly name?: string;
   readonly stats?: Partial<Record<StatKey, number>>;
+  readonly color?: string;
+  readonly sex?: Sex;
+  readonly fertile?: boolean;
+  readonly keeper?: boolean;
+}
+
+export interface SeedInput {
+  readonly color?: string;
+  readonly sex?: Sex;
+  readonly fertile?: boolean;
+  readonly name?: string;
+}
+
+/** Record one breeding: a baby of `color`/`sex` whose parents are sterilised. */
+export interface CrossInput {
+  readonly parentAId: number;
+  readonly parentBId: number;
+  readonly color: string;
+  readonly sex: Sex;
+  readonly enclosId?: number; // defaults to parent A's enclos
+  readonly name?: string;
 }
 
 export interface CompletedItem {
@@ -125,6 +159,19 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
         notified INTEGER NOT NULL DEFAULT 0
       )
     `;
+    // Additive migration: breeding identity + lineage columns (Phase 1). The base schema
+    // only does CREATE TABLE IF NOT EXISTS, so add any missing columns to existing DBs.
+    const dragoCols = yield* sql<{ name: string }>`SELECT name FROM pragma_table_info('dragodinde')`;
+    const haveCol = new Set(dragoCols.map((c) => c.name));
+    const ensureCol = (name: string, ddl: string) =>
+      haveCol.has(name) ? Effect.void : sql.unsafe(`ALTER TABLE dragodinde ADD COLUMN ${ddl}`);
+    yield* ensureCol("color", "color TEXT NOT NULL DEFAULT ''");
+    yield* ensureCol("sex", "sex TEXT NOT NULL DEFAULT 'F'");
+    yield* ensureCol("fertile", "fertile INTEGER NOT NULL DEFAULT 1");
+    yield* ensureCol("keeper", "keeper INTEGER NOT NULL DEFAULT 0");
+    yield* ensureCol("parent_a_id", "parent_a_id INTEGER");
+    yield* ensureCol("parent_b_id", "parent_b_id INTEGER");
+
     yield* sql`
       CREATE TABLE IF NOT EXISTS settings (
         id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -152,14 +199,32 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
         stat_maturite = ${d.stats.maturite},
         stat_amour = ${d.stats.amour},
         stat_serenity = ${d.stats.serenity},
-        notified = ${d.notified ? 1 : 0}
+        notified = ${d.notified ? 1 : 0},
+        color = ${d.color},
+        sex = ${d.sex},
+        fertile = ${d.fertile ? 1 : 0},
+        keeper = ${d.keeper ? 1 : 0},
+        parent_a_id = ${d.parentA},
+        parent_b_id = ${d.parentB}
       WHERE id = ${d.id}
     `;
 
-    const insertDrago = (enclosId: number, name: string) =>
+    interface InsertOpts {
+      readonly name: string;
+      readonly color?: string;
+      readonly sex?: Sex;
+      readonly fertile?: boolean;
+      readonly parentA?: number | null;
+      readonly parentB?: number | null;
+    }
+    const insertDrago = (enclosId: number, opts: InsertOpts) =>
       Effect.gen(function* () {
         const rows = yield* sql<DragoRow>`
-          INSERT INTO dragodinde (enclos_id, name) VALUES (${enclosId}, ${name}) RETURNING *
+          INSERT INTO dragodinde (enclos_id, name, color, sex, fertile, parent_a_id, parent_b_id)
+          VALUES (
+            ${enclosId}, ${opts.name}, ${opts.color ?? ""}, ${opts.sex ?? "F"},
+            ${opts.fertile === false ? 0 : 1}, ${opts.parentA ?? null}, ${opts.parentB ?? null}
+          ) RETURNING *
         `;
         return dragoFromRow(rows[0]);
       });
@@ -247,13 +312,18 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
         return true;
       });
 
-    const addDrago = (enclosId: number) =>
+    const addDrago = (enclosId: number, seed?: SeedInput) =>
       Effect.gen(function* () {
         const rows = yield* sql<{ focus: string }>`SELECT focus FROM enclos WHERE id = ${enclosId}`;
         if (!rows[0]) return Option.none<Dragodinde>();
         const n = yield* countDragos(enclosId);
         if (n >= MAX_DRAGODINDES) return Option.none<Dragodinde>();
-        const created = yield* insertDrago(enclosId, `Dragodinde ${n + 1}`);
+        const created = yield* insertDrago(enclosId, {
+          name: seed?.name ?? `Dragodinde ${n + 1}`,
+          color: seed?.color,
+          sex: seed?.sex,
+          fertile: seed?.fertile,
+        });
         // A fresh dragodinde that already satisfies the focus (e.g. serenity 0 in band)
         // is marked done so it won't ping.
         const focus = sanitizeFocus(JSON.parse(rows[0].focus) as ReadonlyArray<string>);
@@ -261,6 +331,32 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
         if (drago.notified !== created.notified) yield* writeDrago(drago);
         return Option.some(drago);
       });
+
+    /** Record a real breeding: insert the baby with its parents, sterilise both parents. */
+    const recordCross = (input: CrossInput) =>
+      sql.withTransaction(
+        Effect.gen(function* () {
+          const parents = yield* sql<DragoRow>`
+            SELECT * FROM dragodinde WHERE id IN (${input.parentAId}, ${input.parentBId})
+          `;
+          const a = parents.find((p) => p.id === input.parentAId);
+          const b = parents.find((p) => p.id === input.parentBId);
+          if (!a || !b) return Option.none<Dragodinde>();
+          const enclosId = input.enclosId ?? a.enclos_id;
+          const n = yield* countDragos(enclosId);
+          if (n >= MAX_DRAGODINDES) return Option.none<Dragodinde>();
+          const baby = yield* insertDrago(enclosId, {
+            name: input.name ?? input.color,
+            color: input.color,
+            sex: input.sex,
+            fertile: true,
+            parentA: input.parentAId,
+            parentB: input.parentBId,
+          });
+          yield* sql`UPDATE dragodinde SET fertile = 0 WHERE id IN (${input.parentAId}, ${input.parentBId})`;
+          return Option.some(baby);
+        }),
+      );
 
     const removeDrago = (id: number) =>
       Effect.gen(function* () {
@@ -289,7 +385,18 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
             stats.serenity = clamp(Number(body.stats.serenity) || 0, SERENITY_MIN, SERENITY_MAX);
         }
         const name = typeof body.name === "string" ? body.name.slice(0, 40) : current.name;
-        const next = withDoneState({ ...current, name, stats }, focus);
+        const next = withDoneState(
+          {
+            ...current,
+            name,
+            stats,
+            color: typeof body.color === "string" ? body.color : current.color,
+            sex: body.sex === "M" || body.sex === "F" ? body.sex : current.sex,
+            fertile: typeof body.fertile === "boolean" ? body.fertile : current.fertile,
+            keeper: typeof body.keeper === "boolean" ? body.keeper : current.keeper,
+          },
+          focus,
+        );
         yield* writeDrago(next);
         return Option.some(next);
       });
@@ -331,6 +438,7 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
       removeEnclos,
       patchEnclos,
       addDrago,
+      recordCross,
       removeDrago,
       patchDrago,
       tickAll,

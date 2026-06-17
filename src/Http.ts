@@ -6,7 +6,7 @@ import {
 } from "@effect/platform";
 import { Config, Effect, Option } from "effect";
 import { fileURLToPath } from "node:url";
-import { Repo, type DragoPatch, type EnclosPatch } from "./Repo.js";
+import { Repo, type CrossInput, type DragoPatch, type EnclosPatch, type SeedInput } from "./Repo.js";
 import { Discord } from "./Discord.js";
 import {
   BARS,
@@ -146,13 +146,39 @@ export const router = HttpRouter.empty.pipe(
     Effect.gen(function* () {
       const repo = yield* Repo;
       const id = yield* idParam;
-      const created = yield* repo.addDrago(id);
+      const seed = (yield* readBody) as SeedInput;
+      const created = yield* repo.addDrago(id, seed);
       return Option.match(created, {
         onNone: () =>
           HttpServerResponse.unsafeJson(
             { error: `Max ${MAX_DRAGODINDES} dragodindes` },
             { status: 400 },
           ),
+        onSome: (d) => HttpServerResponse.unsafeJson(d),
+      });
+    }),
+  ),
+
+  HttpRouter.post(
+    "/api/breed",
+    Effect.gen(function* () {
+      const repo = yield* Repo;
+      const body = (yield* readBody) as Partial<CrossInput>;
+      if (
+        typeof body.parentAId !== "number" ||
+        typeof body.parentBId !== "number" ||
+        typeof body.color !== "string" ||
+        (body.sex !== "M" && body.sex !== "F")
+      ) {
+        return HttpServerResponse.unsafeJson(
+          { error: "breed requires parentAId, parentBId, color, sex" },
+          { status: 400 },
+        );
+      }
+      const baby = yield* repo.recordCross(body as CrossInput);
+      return Option.match(baby, {
+        onNone: () =>
+          HttpServerResponse.unsafeJson({ error: "Parents not found or enclos full" }, { status: 400 }),
         onSome: (d) => HttpServerResponse.unsafeJson(d),
       });
     }),

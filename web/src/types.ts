@@ -18,11 +18,19 @@ export interface Stats {
   serenity: number;
 }
 
+export type Sex = "M" | "F";
+
 export interface Dragodinde {
   id: number;
   name: string;
   stats: Stats;
   notified: boolean;
+  color: string;
+  sex: Sex;
+  fertile: boolean;
+  keeper: boolean;
+  parentA: number | null;
+  parentB: number | null;
 }
 
 export interface Enclos {
@@ -61,4 +69,24 @@ export interface EnclosPatch {
 export interface DragoPatch {
   name?: string;
   stats?: Partial<Record<StatKey, number>>;
+  color?: string;
+  sex?: Sex;
+  fertile?: boolean;
+  keeper?: boolean;
+}
+
+export interface SeedInput {
+  color?: string;
+  sex?: Sex;
+  fertile?: boolean;
+  name?: string;
+}
+
+export interface CrossInput {
+  parentAId: number;
+  parentBId: number;
+  color: string;
+  sex: Sex;
+  enclosId?: number;
+  name?: string;
 }

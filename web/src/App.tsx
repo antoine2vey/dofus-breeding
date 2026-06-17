@@ -8,8 +8,9 @@ import { OddsCalculator } from "./components/OddsCalculator";
 import { RushSimulator } from "./components/RushSimulator";
 import { BreedingTree } from "./components/BreedingTree";
 import { NamingTab } from "./components/NamingTab";
+import { HerdTab } from "./components/HerdTab";
 
-type Tab = "tracker" | "planner" | "odds" | "sim" | "naming";
+type Tab = "tracker" | "herd" | "planner" | "odds" | "sim" | "naming";
 
 export default function App() {
   const [state, setState] = useState<AppState | null>(null);
@@ -94,6 +95,12 @@ export default function App() {
             Élevage
           </button>
           <button
+            className={"tab" + (tab === "herd" ? " active" : "")}
+            onClick={() => setTab("herd")}
+          >
+            Cheptel
+          </button>
+          <button
             className={"tab" + (tab === "planner" ? " active" : "")}
             onClick={() => setTab("planner")}
           >
@@ -146,6 +153,10 @@ export default function App() {
             onDragoAdd={onDragoAdd}
             onDragoDelete={onDragoDelete}
           />
+        </div>
+      ) : tab === "herd" ? (
+        <div className="split">
+          <HerdTab enclos={enclos} onChanged={refresh} />
         </div>
       ) : tab === "planner" ? (
         <div className="split">

@@ -46,11 +46,20 @@ export interface Stats {
   readonly serenity: number;
 }
 
+export type Sex = "M" | "F";
+
 export interface Dragodinde {
   readonly id: number;
   readonly name: string;
   readonly stats: Stats;
   readonly notified: boolean;
+  // Breeding identity & lineage (added for the AI helper / recommender).
+  readonly color: string; // one of the 66 colour names, or "" if unset (legacy/wild)
+  readonly sex: Sex;
+  readonly fertile: boolean; // false once it has bred (sterile)
+  readonly keeper: boolean; // the achievement copy to protect from breeding
+  readonly parentA: number | null; // dragodinde id of a parent (for genealogy / grandparents)
+  readonly parentB: number | null;
 }
 
 export interface Enclos {
@@ -89,6 +98,12 @@ export const makeDragodinde = (id: number, name?: string): Dragodinde => ({
   name: name ?? `Dragodinde ${id}`,
   stats: { endurance: 0, maturite: 0, amour: 0, serenity: 0 },
   notified: false,
+  color: "",
+  sex: "F",
+  fertile: true,
+  keeper: false,
+  parentA: null,
+  parentB: null,
 });
 
 /** Has this bar driven its target to its goal? Serenity goal = inside the [-100,100] band. */
