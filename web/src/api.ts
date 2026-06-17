@@ -1,3 +1,4 @@
+import type { Recommendation } from "@dd/core";
 import type {
   AppState,
   CrossInput,
@@ -7,6 +8,14 @@ import type {
   EnclosPatch,
   SeedInput,
 } from "./types";
+
+export interface RecommendBody {
+  targetGen?: number;
+  level?: number;
+  optimakina?: boolean;
+  clonage?: boolean;
+  freeSlots?: number;
+}
 
 async function json<T>(res: Response): Promise<T> {
   if (res.status >= 500) throw new Error(`HTTP ${res.status}`);
@@ -49,6 +58,13 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }).then((r) => json<Dragodinde | { error: string }>(r)),
+
+  recommend: (body: RecommendBody) =>
+    fetch("/api/recommend", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then((r) => json<Recommendation>(r)),
 
   setWebhook: (webhookUrl: string) =>
     fetch("/api/settings", {

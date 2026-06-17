@@ -8,6 +8,7 @@ import { Config, Effect, Option } from "effect";
 import { fileURLToPath } from "node:url";
 import { Repo, type CrossInput, type DragoPatch, type EnclosPatch, type SeedInput } from "./Repo.js";
 import { Discord } from "./Discord.js";
+import { recommend, type InvMount } from "@dd/core";
 import {
   BARS,
   FOCUSABLE,
@@ -156,6 +157,42 @@ export const router = HttpRouter.empty.pipe(
           ),
         onSome: (d) => HttpServerResponse.unsafeJson(d),
       });
+    }),
+  ),
+
+  HttpRouter.post(
+    "/api/recommend",
+    Effect.gen(function* () {
+      const repo = yield* Repo;
+      const body = (yield* readBody) as {
+        targetGen?: number;
+        level?: number;
+        optimakina?: boolean;
+        clonage?: boolean;
+        freeSlots?: number;
+      };
+      const enclos = yield* repo.all;
+      const all = enclos.flatMap((e) => e.dragodindes);
+      const colorById = new Map(all.map((d) => [d.id, d.color]));
+      const mounts: InvMount[] = all.map((d) => ({
+        id: d.id,
+        color: d.color,
+        sex: d.sex,
+        fertile: d.fertile,
+        keeper: d.keeper,
+        grandparents: [d.parentA, d.parentB]
+          .map((pid) => (pid != null ? colorById.get(pid) : undefined))
+          .filter((c): c is string => !!c),
+      }));
+      const result = recommend({
+        mounts,
+        targetGen: typeof body.targetGen === "number" ? body.targetGen : 10,
+        freeSlots: typeof body.freeSlots === "number" ? body.freeSlots : Math.max(1, enclos.length),
+        level: typeof body.level === "number" ? body.level : 60,
+        optimakina: body.optimakina === true,
+        clonage: body.clonage !== false,
+      });
+      return HttpServerResponse.unsafeJson(result);
     }),
   ),
 
