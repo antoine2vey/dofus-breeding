@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { COLORS, GEN_COLOR } from "../breeding";
-import { crossOdds, type Mount } from "../breeding-odds";
+import { COLORS, GEN_COLOR } from "@dd/core";
+import { crossOdds, type Mount } from "@dd/core";
 
 const RACES = COLORS.map((c) => c.name);
 

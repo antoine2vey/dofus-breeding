@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { GEN_COLOR } from "../breeding";
-import { monteCarlo, makeRng, type SimSummary } from "../breeding-sim";
+import { GEN_COLOR } from "@dd/core";
+import { monteCarlo, makeRng, type SimSummary } from "@dd/core";
 
 const fmt = (n: number) => Math.round(n).toLocaleString("fr-FR");
 

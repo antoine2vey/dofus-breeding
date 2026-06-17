@@ -3,18 +3,24 @@
   "version": "0.2.0",
   "description": "Dragodinde breeding tracker (Effect + SQLite) with Discord notifications when watched stats hit 20k",
   "type": "module",
+  "workspaces": [
+    "packages/*",
+    "web"
+  ],
   "scripts": {
-    "start": "tsx src/main.ts",
+    "core:build": "npm -w @dd/core run build",
+    "start": "npm run core:build && tsx src/main.ts",
     "start:prod": "node dist/main.js",
-    "dev": "tsx watch src/main.ts",
-    "web:dev": "npm --prefix web run dev",
-    "web:build": "npm --prefix web run build",
-    "build": "npm --prefix web install && npm --prefix web run build",
-    "build:server": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit",
+    "dev": "npm run core:build && tsx watch src/main.ts",
+    "web:dev": "npm -w dragodinde-web run dev",
+    "web:build": "npm run core:build && npm -w dragodinde-web run build",
+    "build": "npm run core:build && npm -w dragodinde-web run build",
+    "build:server": "npm run core:build && tsc -p tsconfig.build.json",
+    "typecheck": "npm run core:build && tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
+    "@dd/core": "*",
     "@effect/platform": "0.96.1",
     "@effect/platform-node": "0.107.0",
     "@effect/sql": "0.51.1",

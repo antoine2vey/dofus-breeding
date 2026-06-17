@@ -6,8 +6,8 @@
 // times gives the EXPECTED captures (by colour), breedings and clonages to reach the goal,
 // plus which colours the winning line breeds most (the breeding priorities).
 
-import { COLORS, COLOR_BY_NAME } from "./breeding";
-import { crossOdds, type Mount } from "./breeding-odds";
+import { COLORS, COLOR_BY_NAME } from "./colors.js";
+import { crossOdds, type Mount } from "./odds.js";
 
 const BASE = ["Amande", "Dorée", "Rousse"] as const;
 type Sex = 0 | 1;
@@ -36,6 +36,7 @@ export interface SimRun {
   clonages: number;
   raises: number; // captures + breedings + clonages (everything raised to féconde)
   bred: Record<string, number>; // how many of each colour the line produced
+  clonesByRace: Record<string, number>; // how many of each colour were recovered via clonage
   steps: number;
   climbOffers?: number;
 }
@@ -53,6 +54,7 @@ const targetColorFor = (gen: number): string => {
 export function simulateOnce(cfg: SimConfig, rng: () => number): SimRun {
   const captures: Record<string, number> = { Amande: 0, Dorée: 0, Rousse: 0 };
   const bred: Record<string, number> = {};
+  const clonesByRace: Record<string, number> = {};
   let breedings = 0;
   let clonages = 0;
 
@@ -94,6 +96,7 @@ export function simulateOnce(cfg: SimConfig, rng: () => number): SimRun {
         sp.pop();
         const keep = sp.pop()!;
         clonages++;
+        clonesByRace[race] = (clonesByRace[race] ?? 0) + 1;
         return { race, sex: rng() < 0.5 ? 0 : 1, gp: keep.gp, fertile: true };
       }
     }
@@ -129,6 +132,7 @@ export function simulateOnce(cfg: SimConfig, rng: () => number): SimRun {
     clonages,
     raises: totalCaptures + breedings + clonages,
     bred,
+    clonesByRace,
     steps: breedings,
     climbOffers: 0,
   };

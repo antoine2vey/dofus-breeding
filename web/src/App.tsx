@@ -7,8 +7,9 @@ import { SettingsDialog } from "./components/SettingsDialog";
 import { OddsCalculator } from "./components/OddsCalculator";
 import { RushSimulator } from "./components/RushSimulator";
 import { BreedingTree } from "./components/BreedingTree";
+import { NamingTab } from "./components/NamingTab";
 
-type Tab = "tracker" | "planner" | "odds" | "sim";
+type Tab = "tracker" | "planner" | "odds" | "sim" | "naming";
 
 export default function App() {
   const [state, setState] = useState<AppState | null>(null);
@@ -110,6 +111,12 @@ export default function App() {
           >
             Simulateur
           </button>
+          <button
+            className={"tab" + (tab === "naming" ? " active" : "")}
+            onClick={() => setTab("naming")}
+          >
+            Nommage
+          </button>
         </nav>
         <div className="settings">
           <span className={"pill " + (settings.webhookConfigured ? "ok" : "bad")}>
@@ -148,9 +155,13 @@ export default function App() {
         <div className="split">
           <OddsCalculator />
         </div>
-      ) : (
+      ) : tab === "sim" ? (
         <div className="split">
           <RushSimulator />
+        </div>
+      ) : (
+        <div className="split">
+          <NamingTab />
         </div>
       )}
 

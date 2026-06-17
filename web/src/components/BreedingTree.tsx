@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
-import { COLORS, COLOR_BY_NAME, GEN_COLOR } from "../breeding";
-import { crossOdds } from "../breeding-odds";
-import { monteCarlo, makeRng } from "../breeding-sim";
+import { COLORS, COLOR_BY_NAME, GEN_COLOR } from "@dd/core";
+import { crossOdds } from "@dd/core";
+import { monteCarlo, makeRng } from "@dd/core";
 
 const POTENTIAL: Record<string, number> = (() => {
   const pot: Record<string, number> = {};

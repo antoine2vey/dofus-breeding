@@ -340,3 +340,17 @@ nav.tabs { display: flex; gap: 4px; margin-left: 18px; flex: 1; }
 .tree-count { font-size: 11px; font-weight: 700; color: var(--accent); }
 .tree-prob { font-size: 11px; color: var(--muted); }
 .chip-count { margin-left: 5px; font-size: 10px; font-weight: 700; color: var(--accent); }
+
+/* ── Naming tab ──────────────────────────────────────────────────────── */
+.name-output { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 10px 0 6px; }
+.name-big { font-size: 26px; font-weight: 800; letter-spacing: 0.02em; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 14px; color: var(--accent); }
+.name-sample { margin-bottom: 4px; }
+.name-sample code, .decode-panel code { background: var(--panel2); border-radius: 4px; padding: 0 4px; }
+.decode-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.decode-err { color: #e8607a; font-size: 12px; }
+.decode-ok { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.letter-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px; margin: 6px 0; }
+.letter-cell { display: flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+.letter-code { font-weight: 800; font-size: 16px; width: 18px; text-align: center; font-family: ui-monospace, monospace; }
+.code-chip { background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; padding: 3px 8px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.name-output input[type="text"], .plan-controls input[type="text"] { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 6px 9px; font-family: inherit; font-size: 13px; }
