@@ -1,5 +1,5 @@
 import { SqlClient } from "@effect/sql";
-import { COLOR_BY_NAME } from "@dd/core";
+import { COLOR_BY_NAME, buildName } from "@dd/core";
 import { Effect, Option } from "effect";
 import {
   type Dragodinde,
@@ -312,7 +312,7 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
     `;
 
     interface InsertOpts {
-      readonly name: string;
+      readonly name?: string; // omitted -> auto-named from the convention (colour+sex+keeper+grandparents)
       readonly enclosId?: number | null; // default null = born into the stable
       readonly color?: string;
       readonly sex?: Sex;
@@ -326,11 +326,19 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
       Effect.gen(function* () {
         const gps = opts.grandparents ?? [];
         const status = opts.status ?? "fertile";
+        const sex: Sex = opts.sex ?? "F";
+        // Auto-name from the in-game convention when no explicit name is given — we know colour,
+        // sex and grandparents, so every breed/clone/capture lands findable in-game (not "Orchidée").
+        const name =
+          opts.name?.trim() ||
+          (opts.color
+            ? buildName({ color: opts.color, sex, keeper: opts.keeper ?? false, grandparents: gps })
+            : "Dragodinde");
         const rows = yield* sql<DragoRow>`
           INSERT INTO dragodinde
             (enclos_id, name, color, sex, status, fertile, keeper, parent_a_id, parent_b_id, grand_a, grand_b)
           VALUES (
-            ${opts.enclosId ?? null}, ${opts.name}, ${opts.color ?? ""}, ${opts.sex ?? "F"},
+            ${opts.enclosId ?? null}, ${name}, ${opts.color ?? ""}, ${sex},
             ${status}, ${status === "sterile" ? 0 : 1}, ${opts.keeper ? 1 : 0},
             ${opts.parentA ?? null}, ${opts.parentB ?? null}, ${gps[0] ?? null}, ${gps[1] ?? null}
           ) RETURNING *
@@ -441,7 +449,7 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
         const n = yield* countStable;
         if (n >= MAX_STABLE) return Option.none<Dragodinde>();
         const created = yield* insertDrago({
-          name: seed?.name ?? `Dragodinde ${n + 1}`,
+          name: seed?.name, // undefined -> insertDrago auto-names from the convention
           color: seed?.color,
           sex: seed?.sex,
           status: seed?.status,
@@ -466,7 +474,7 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
           if (a.keeper === 1 || b.keeper === 1) return Option.none<Dragodinde>();
           if ((yield* countStable) >= MAX_STABLE) return Option.none<Dragodinde>();
           const baby = yield* insertDrago({
-            name: input.name ?? input.color,
+            name: input.name, // auto-named from colour + sex + grandparents (parents' colours)
             color: input.color,
             sex: input.sex,
             status: "fertile", // a newborn isn't féconde yet — its gauges must be raised first
@@ -499,7 +507,7 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
           if ((yield* countStable) >= MAX_STABLE) return Option.none<Dragodinde>();
           yield* sql`DELETE FROM dragodinde WHERE id IN (${input.aId}, ${input.bId})`;
           const clone = yield* insertDrago({
-            name: input.name ?? a.color,
+            name: input.name, // auto-named from the convention (clone has no grandparents)
             color: a.color,
             sex: input.sex,
             status: "fertile", // gauges reset to 0 — not féconde until raised; born into the stable
@@ -540,7 +548,7 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
             }
             const d = yield* insertDrago({
               enclosId: place,
-              name: r.name ?? r.color,
+              name: r.name, // undefined (e.g. AI-recorded capture) -> convention name
               color: r.color,
               sex: r.sex,
               status: r.status,
