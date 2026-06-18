@@ -1,11 +1,13 @@
 import type { Recommendation } from "@dd/core";
 import type {
   AppState,
+  CloneInput,
   CrossInput,
   Dragodinde,
   DragoPatch,
   Enclos,
   EnclosPatch,
+  ImportRow,
   SeedInput,
 } from "./types";
 
@@ -44,6 +46,18 @@ export const api = {
     }).then((r) => json<Dragodinde | { error: string }>(r)),
   breed: (input: CrossInput) =>
     fetch("/api/breed", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }).then((r) => json<Dragodinde | { error: string }>(r)),
+  importMounts: (enclosId: number, mounts: ImportRow[]) =>
+    fetch("/api/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enclosId, mounts }),
+    }).then((r) => json<{ created: number; skipped: number; mounts: Dragodinde[] } | { error: string }>(r)),
+  clone: (input: CloneInput) =>
+    fetch("/api/clone", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),

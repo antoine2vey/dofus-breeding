@@ -19,6 +19,7 @@ export interface Stats {
 }
 
 export type Sex = "M" | "F";
+export type ReproStatus = "sterile" | "fertile" | "feconde";
 
 export interface Dragodinde {
   id: number;
@@ -27,10 +28,11 @@ export interface Dragodinde {
   notified: boolean;
   color: string;
   sex: Sex;
-  fertile: boolean;
+  status: ReproStatus;
   keeper: boolean;
   parentA: number | null;
   parentB: number | null;
+  grandparents: string[];
 }
 
 export interface Enclos {
@@ -71,14 +73,24 @@ export interface DragoPatch {
   stats?: Partial<Record<StatKey, number>>;
   color?: string;
   sex?: Sex;
-  fertile?: boolean;
+  status?: ReproStatus;
   keeper?: boolean;
+  grandparents?: string[];
+}
+
+export interface ImportRow {
+  name?: string;
+  color: string;
+  sex: Sex;
+  status?: ReproStatus;
+  keeper?: boolean;
+  grandparents?: string[];
 }
 
 export interface SeedInput {
   color?: string;
   sex?: Sex;
-  fertile?: boolean;
+  status?: ReproStatus;
   name?: string;
 }
 
@@ -86,6 +98,14 @@ export interface CrossInput {
   parentAId: number;
   parentBId: number;
   color: string;
+  sex: Sex;
+  enclosId?: number;
+  name?: string;
+}
+
+export interface CloneInput {
+  aId: number;
+  bId: number;
   sex: Sex;
   enclosId?: number;
   name?: string;

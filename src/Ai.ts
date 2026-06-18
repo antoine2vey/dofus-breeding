@@ -49,7 +49,7 @@ export class Ai extends Effect.Service<Ai>()("app/Ai", {
               id: m.id,
               color: m.color,
               sex: m.sex,
-              fertile: m.fertile,
+              status: m.status,
               keeper: m.keeper,
               grandparents: m.grandparents,
             })),

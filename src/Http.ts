@@ -6,7 +6,15 @@ import {
 } from "@effect/platform";
 import { Config, Effect, Option, Stream } from "effect";
 import { fileURLToPath } from "node:url";
-import { Repo, type CrossInput, type DragoPatch, type EnclosPatch, type SeedInput } from "./Repo.js";
+import {
+  Repo,
+  type CloneInput,
+  type CrossInput,
+  type DragoPatch,
+  type EnclosPatch,
+  type ImportRow,
+  type SeedInput,
+} from "./Repo.js";
 import { Discord } from "./Discord.js";
 import { Ai, type ChatMessage } from "./Ai.js";
 import { recommend, type InvMount } from "@dd/core";
@@ -174,16 +182,13 @@ export const router = HttpRouter.empty.pipe(
       };
       const enclos = yield* repo.all;
       const all = enclos.flatMap((e) => e.dragodindes);
-      const colorById = new Map(all.map((d) => [d.id, d.color]));
       const mounts: InvMount[] = all.map((d) => ({
         id: d.id,
         color: d.color,
         sex: d.sex,
-        fertile: d.fertile,
+        status: d.status,
         keeper: d.keeper,
-        grandparents: [d.parentA, d.parentB]
-          .map((pid) => (pid != null ? colorById.get(pid) : undefined))
-          .filter((c): c is string => !!c),
+        grandparents: [...d.grandparents],
       }));
       const result = recommend({
         mounts,
@@ -218,16 +223,13 @@ export const router = HttpRouter.empty.pipe(
       };
       const enclos = yield* repo.all;
       const all = enclos.flatMap((e) => e.dragodindes);
-      const colorById = new Map(all.map((d) => [d.id, d.color]));
       const inventory: InvMount[] = all.map((d) => ({
         id: d.id,
         color: d.color,
         sex: d.sex,
-        fertile: d.fertile,
+        status: d.status,
         keeper: d.keeper,
-        grandparents: [d.parentA, d.parentB]
-          .map((pid) => (pid != null ? colorById.get(pid) : undefined))
-          .filter((c): c is string => !!c),
+        grandparents: [...d.grandparents],
       }));
       const it = ai.reply(body.messages ?? [], inventory, {
         targetGen: typeof body.targetGen === "number" ? body.targetGen : 10,
@@ -268,6 +270,53 @@ export const router = HttpRouter.empty.pipe(
       return Option.match(baby, {
         onNone: () =>
           HttpServerResponse.unsafeJson({ error: "Parents not found or enclos full" }, { status: 400 }),
+        onSome: (d) => HttpServerResponse.unsafeJson(d),
+      });
+    }),
+  ),
+
+  HttpRouter.post(
+    "/api/import",
+    Effect.gen(function* () {
+      const repo = yield* Repo;
+      const body = (yield* readBody) as { enclosId?: number; mounts?: ImportRow[] };
+      if (typeof body.enclosId !== "number" || !Array.isArray(body.mounts)) {
+        return HttpServerResponse.unsafeJson(
+          { error: "import requires enclosId and mounts[]" },
+          { status: 400 },
+        );
+      }
+      const valid = body.mounts.filter(
+        (m): m is ImportRow =>
+          !!m && typeof m.color === "string" && (m.sex === "M" || m.sex === "F"),
+      );
+      const { created, skipped } = yield* repo.importMounts(body.enclosId, valid);
+      return HttpServerResponse.unsafeJson({ created: created.length, skipped, mounts: created });
+    }),
+  ),
+
+  HttpRouter.post(
+    "/api/clone",
+    Effect.gen(function* () {
+      const repo = yield* Repo;
+      const body = (yield* readBody) as Partial<CloneInput>;
+      if (
+        typeof body.aId !== "number" ||
+        typeof body.bId !== "number" ||
+        (body.sex !== "M" && body.sex !== "F")
+      ) {
+        return HttpServerResponse.unsafeJson(
+          { error: "clone requires aId, bId, sex" },
+          { status: 400 },
+        );
+      }
+      const clone = yield* repo.recordClone(body as CloneInput);
+      return Option.match(clone, {
+        onNone: () =>
+          HttpServerResponse.unsafeJson(
+            { error: "Need two distinct steriles of the same colour" },
+            { status: 400 },
+          ),
         onSome: (d) => HttpServerResponse.unsafeJson(d),
       });
     }),

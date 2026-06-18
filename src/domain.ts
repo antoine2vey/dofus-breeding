@@ -1,5 +1,8 @@
 // Pure domain logic for the Dragodinde simulation — no Effect, no IO, fully testable.
 
+import type { ReproStatus } from "@dd/core";
+export type { ReproStatus };
+
 export const STAT_MAX = 20000; // endurance / maturite / amour cap
 export const SERENITY_MIN = -5000; // serenity scale / clamp range
 export const SERENITY_MAX = 5000;
@@ -56,10 +59,13 @@ export interface Dragodinde {
   // Breeding identity & lineage (added for the AI helper / recommender).
   readonly color: string; // one of the 66 colour names, or "" if unset (legacy/wild)
   readonly sex: Sex;
-  readonly fertile: boolean; // false once it has bred (sterile)
+  readonly status: ReproStatus; // sterile (bred) → fertile (not ready) → feconde (ready now)
   readonly keeper: boolean; // the achievement copy to protect from breeding
   readonly parentA: number | null; // dragodinde id of a parent (for genealogy / grandparents)
   readonly parentB: number | null;
+  // Grandparent colours (= this mount's parents' colours) stored denormalised, so they survive
+  // a parent being deleted (clonage) and can be set on import from the name. 0..2 colour names.
+  readonly grandparents: ReadonlyArray<string>;
 }
 
 export interface Enclos {
@@ -100,10 +106,11 @@ export const makeDragodinde = (id: number, name?: string): Dragodinde => ({
   notified: false,
   color: "",
   sex: "F",
-  fertile: true,
+  status: "fertile",
   keeper: false,
   parentA: null,
   parentB: null,
+  grandparents: [],
 });
 
 /** Has this bar driven its target to its goal? Serenity goal = inside the [-100,100] band. */
@@ -115,6 +122,15 @@ export const barGoalReached = (bar: Bar, stats: Stats): boolean => {
 /** A dragodinde is done when every checked (focused) bar has reached its goal. */
 export const focusAllMaxed = (focus: ReadonlyArray<FocusKey>, stats: Stats): boolean =>
   focus.length > 0 && focus.every((k) => barGoalReached(BAR_BY_KEY[k], stats));
+
+/** Ready to reproduce: endurance, maturité AND amour all maxed (20K). Serenity doesn't count. */
+export const breedReady = (stats: Stats): boolean =>
+  stats.endurance >= STAT_MAX && stats.maturite >= STAT_MAX && stats.amour >= STAT_MAX;
+
+/** Auto-promote a non-sterile mount to féconde once its three gauges are maxed (20K). Never
+ * demotes — a manually/imported féconde sticks, and sterile always stays sterile. */
+export const reproStatus = (status: ReproStatus, stats: Stats): ReproStatus =>
+  status !== "sterile" && breedReady(stats) ? "feconde" : status;
 
 /** Only checked (focused) bars drain and feed — serenity bars included. */
 export const barActive = (bar: Bar, focus: ReadonlyArray<FocusKey>): boolean =>
@@ -156,8 +172,9 @@ export const tickEnclos = (e: Enclos): { enclos: Enclos; completed: ReadonlyArra
   const dragodindes = e.dragodindes.map((d) => {
     const stats = gainStats(d.stats, rates);
     const done = focusAllMaxed(e.focus, stats);
-    if (done && !d.notified) completed.push({ ...d, stats, notified: true });
-    return { ...d, stats, notified: done };
+    const status = reproStatus(d.status, stats); // gauges maxed -> becomes féconde
+    if (done && !d.notified) completed.push({ ...d, stats, notified: true, status });
+    return { ...d, stats, notified: done, status };
   });
 
   // Auto-uncheck any focused bar whose goal is now reached by EVERY dragodinde.

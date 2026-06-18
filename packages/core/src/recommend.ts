@@ -20,11 +20,14 @@ const POTENTIAL: Record<string, number> = (() => {
 
 const genOf = (color: string) => COLOR_BY_NAME.get(color)?.gen ?? 0;
 
+/** In-game reproduction state: sterile (used up) → fertile (not yet ready) → feconde (ready now). */
+export type ReproStatus = "sterile" | "fertile" | "feconde";
+
 export interface InvMount {
   readonly id: number;
   readonly color: string; // "" if unset
   readonly sex: "M" | "F";
-  readonly fertile: boolean;
+  readonly status: ReproStatus;
   readonly keeper: boolean;
   readonly grandparents: readonly string[]; // parent colours, for odds genealogy
 }
@@ -89,10 +92,11 @@ export function recommend(input: RecommendInput): Recommendation {
     return v;
   };
 
-  // ── Breed: score every fertile opposite-sex pair, greedily pick non-overlapping best ──
-  const fertile = mounts.filter((m) => m.fertile && m.color && !m.keeper);
-  const males = fertile.filter((m) => m.sex === "M");
-  const females = fertile.filter((m) => m.sex === "F");
+  // ── Breed: only FÉCONDE mounts can pair now. Score every opposite-sex pair, greedily
+  //    pick non-overlapping best. (Merely-fertile mounts are future capacity, not pairable.) ──
+  const feconde = mounts.filter((m) => m.status === "feconde" && m.color && !m.keeper);
+  const males = feconde.filter((m) => m.sex === "M");
+  const females = feconde.filter((m) => m.sex === "F");
   type Scored = { m: InvMount; f: InvMount; score: number; r: ReturnType<typeof crossOdds> };
   const scored: Scored[] = [];
   for (const m of males) {
@@ -139,11 +143,11 @@ export function recommend(input: RecommendInput): Recommendation {
     });
   }
 
-  // ── Capture: bases with no fertile stock (pipeline would stall without them) ──
-  const fertileBaseCount = (c: string) => fertile.filter((m) => m.color === c).length;
+  // ── Capture: bases with no féconde stock (pipeline would stall without them) ──
+  const fecondeBaseCount = (c: string) => feconde.filter((m) => m.color === c).length;
   const capture: CaptureAction[] = [];
   for (const c of BASES) {
-    const n = fertileBaseCount(c);
+    const n = fecondeBaseCount(c);
     if (n === 0) capture.push({ color: c, count: 2, reason: "aucune féconde en stock — base nécessaire" });
   }
   if (breed.length === 0 && capture.length === 0) {
@@ -151,7 +155,7 @@ export function recommend(input: RecommendInput): Recommendation {
   }
 
   // ── Recycle: clone same-colour sterile pairs; extract dead-weight steriles ──
-  const sterile = mounts.filter((m) => !m.fertile && m.color && !m.keeper);
+  const sterile = mounts.filter((m) => m.status === "sterile" && m.color && !m.keeper);
   const byColor = new Map<string, InvMount[]>();
   for (const m of sterile) (byColor.get(m.color) ?? byColor.set(m.color, []).get(m.color)!).push(m);
   const recycle: RecycleAction[] = [];

@@ -79,21 +79,50 @@ export interface NameParts {
   readonly sex: Sex;
   readonly index: number; // 1-based copy number
   readonly keeper: boolean;
+  /** The two grandparent (parent) colour NAMES, 0..2. Canonical (sorted by code) in the name. */
+  readonly grandparents?: ReadonlyArray<string>;
 }
 
-/** Build a valid in-game name from its parts. */
+/** Grandparent colour names -> sorted, deduped-to-≤2, valid-only code list (canonical order). */
+function grandparentCodes(gps: ReadonlyArray<string> | undefined): string[] {
+  return (gps ?? [])
+    .map((c) => colorCode(c))
+    .filter((code) => code !== "?")
+    .sort((a, b) => a.localeCompare(b))
+    .slice(0, 2);
+}
+
+/** Build a valid in-game name from its parts. Appends the two grandparent codes when known:
+ *  `<own>-[K]<sex><index>[-<gp1>[-<gp2>]]`, e.g. `i-fa-e-ei`. */
 export function buildName(p: NameParts): string {
   const suffix = (p.keeper ? "K" : "") + (p.sex === "F" ? "f" : "m") + indexToCode(p.index);
-  return `${colorCode(p.color)}-${suffix}`;
+  const gps = grandparentCodes(p.grandparents);
+  return [colorCode(p.color), suffix, ...gps].join("-");
 }
 
 /** Decode a name written in this convention. null if it doesn't match the format. */
 export function parseName(name: string): NameParts | null {
-  const m = /^([a-z]{1,2})-(K?)([fm])([a-z]+)$/.exec(name.trim());
-  if (!m) return null;
-  const color = CODE_TO_COLOR[m[1]];
+  const parts = name.trim().split("-");
+  if (parts.length < 2 || parts.length > 4) return null;
+  const [ownCode, suffix, ...gpCodes] = parts;
+  if (!/^[a-z]{1,2}$/.test(ownCode)) return null;
+  const color = CODE_TO_COLOR[ownCode];
   if (!color) return null;
-  return { color, keeper: m[2] === "K", sex: m[3] === "f" ? "F" : "M", index: codeToIndex(m[4]) };
+  const sm = /^(K?)([fm])([a-z]+)$/.exec(suffix);
+  if (!sm) return null;
+  const grandparents: string[] = [];
+  for (const gc of gpCodes) {
+    const gColor = CODE_TO_COLOR[gc];
+    if (!gColor) return null; // an unrecognised grandparent code invalidates the whole name
+    grandparents.push(gColor);
+  }
+  return {
+    color,
+    keeper: sm[1] === "K",
+    sex: sm[2] === "f" ? "F" : "M",
+    index: codeToIndex(sm[3]),
+    grandparents,
+  };
 }
 
 export const genOf = (color: string) => COLOR_BY_NAME.get(color)?.gen ?? 0;
