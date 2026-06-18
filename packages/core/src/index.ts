@@ -5,3 +5,4 @@ export * from "./odds.js";
 export * from "./sim.js";
 export * from "./naming.js";
 export * from "./recommend.js";
+export * from "./assistant.js";

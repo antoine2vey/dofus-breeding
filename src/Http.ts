@@ -17,7 +17,7 @@ import {
 } from "./Repo.js";
 import { Discord } from "./Discord.js";
 import { Ai, type ChatMessage } from "./Ai.js";
-import { recommend, type InvMount } from "@dd/core";
+import { recommend, assistantPlan, type InvMount, type AssistMount, type AssistEnclos } from "@dd/core";
 import {
   BARS,
   FOCUSABLE,
@@ -77,7 +77,8 @@ const idParam = HttpRouter.params.pipe(
   Effect.map((p) => Number(p["id"])),
 );
 
-export const router = HttpRouter.empty.pipe(
+// Split across two pipes: HttpRouter.pipe is typed for at most 20 combinators.
+const router1 = HttpRouter.empty.pipe(
   HttpRouter.get("/", serveStatic("index.html")),
   HttpRouter.get(
     "/assets/:name",
@@ -222,6 +223,45 @@ export const router = HttpRouter.empty.pipe(
   ),
 
   HttpRouter.post(
+    "/api/assistant/plan",
+    Effect.gen(function* () {
+      const repo = yield* Repo;
+      const body = (yield* readBody) as {
+        targetGen?: number;
+        level?: number;
+        optimakina?: boolean;
+        clonage?: boolean;
+      };
+      const enclos = yield* repo.all;
+      const all = yield* repo.allMounts;
+      const mounts: AssistMount[] = all.map((d) => ({
+        id: d.id,
+        color: d.color,
+        sex: d.sex,
+        status: d.status,
+        keeper: d.keeper,
+        enclosId: d.enclosId,
+        grandparents: [...d.grandparents],
+      }));
+      const assistEnclos: AssistEnclos[] = enclos.map((e) => ({
+        id: e.id,
+        name: e.name,
+        focus: [...e.focus],
+        count: e.dragodindes.length,
+      }));
+      const result = assistantPlan({
+        mounts,
+        enclos: assistEnclos,
+        targetGen: typeof body.targetGen === "number" ? body.targetGen : 10,
+        level: typeof body.level === "number" ? body.level : 60,
+        optimakina: body.optimakina === true,
+        clonage: body.clonage !== false,
+      });
+      return HttpServerResponse.unsafeJson(result);
+    }),
+  ),
+
+  HttpRouter.post(
     "/api/ai/chat",
     Effect.gen(function* () {
       const ai = yield* Ai;
@@ -269,7 +309,9 @@ export const router = HttpRouter.empty.pipe(
       return HttpServerResponse.stream(sse, { contentType: "text/event-stream" });
     }),
   ),
+);
 
+export const router = router1.pipe(
   HttpRouter.post(
     "/api/breed",
     Effect.gen(function* () {
