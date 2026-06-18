@@ -24,6 +24,7 @@ import {
   MAX_DRAGODINDES,
   MAX_ENCLOS,
   MAX_FOCUS,
+  MAX_STABLE,
   SERENITY_GOAL,
   SERENITY_MAX,
   SERENITY_MIN,
@@ -92,10 +93,12 @@ export const router = HttpRouter.empty.pipe(
       const repo = yield* Repo;
       const discord = yield* Discord;
       const enclos = yield* repo.all;
+      const stable = yield* repo.stable;
       const webhookConfigured = yield* discord.isConfigured;
       const tickMs = yield* Config.integer("TICK_MS").pipe(Config.withDefault(10000));
       return HttpServerResponse.unsafeJson({
         enclos,
+        stable,
         settings: { webhookConfigured },
         meta: {
           fuelBars: BARS,
@@ -152,16 +155,31 @@ export const router = HttpRouter.empty.pipe(
   ),
 
   HttpRouter.post(
-    "/api/enclos/:id/dragodinde",
+    "/api/dragodinde",
+    Effect.gen(function* () {
+      const repo = yield* Repo;
+      const seed = (yield* readBody) as SeedInput;
+      const created = yield* repo.addDrago(seed);
+      return Option.match(created, {
+        onNone: () =>
+          HttpServerResponse.unsafeJson({ error: `Stable pleine (max ${MAX_STABLE})` }, { status: 400 }),
+        onSome: (d) => HttpServerResponse.unsafeJson(d),
+      });
+    }),
+  ),
+
+  HttpRouter.post(
+    "/api/dragodinde/:id/move",
     Effect.gen(function* () {
       const repo = yield* Repo;
       const id = yield* idParam;
-      const seed = (yield* readBody) as SeedInput;
-      const created = yield* repo.addDrago(id, seed);
-      return Option.match(created, {
+      const body = (yield* readBody) as { enclosId?: number | null };
+      const enclosId = typeof body.enclosId === "number" ? body.enclosId : null;
+      const moved = yield* repo.moveDrago(id, enclosId);
+      return Option.match(moved, {
         onNone: () =>
           HttpServerResponse.unsafeJson(
-            { error: `Max ${MAX_DRAGODINDES} dragodindes` },
+            { error: `Introuvable ou enclos plein (max ${MAX_DRAGODINDES})` },
             { status: 400 },
           ),
         onSome: (d) => HttpServerResponse.unsafeJson(d),
@@ -181,7 +199,8 @@ export const router = HttpRouter.empty.pipe(
         freeSlots?: number;
       };
       const enclos = yield* repo.all;
-      const all = enclos.flatMap((e) => e.dragodindes);
+      const all = yield* repo.allMounts; // stable + enclos — the whole collection
+      const emptySlots = enclos.reduce((s, e) => s + Math.max(0, MAX_DRAGODINDES - e.dragodindes.length), 0);
       const mounts: InvMount[] = all.map((d) => ({
         id: d.id,
         color: d.color,
@@ -193,7 +212,7 @@ export const router = HttpRouter.empty.pipe(
       const result = recommend({
         mounts,
         targetGen: typeof body.targetGen === "number" ? body.targetGen : 10,
-        freeSlots: typeof body.freeSlots === "number" ? body.freeSlots : Math.max(1, enclos.length),
+        freeSlots: typeof body.freeSlots === "number" ? body.freeSlots : Math.max(1, emptySlots),
         level: typeof body.level === "number" ? body.level : 60,
         optimakina: body.optimakina === true,
         clonage: body.clonage !== false,
@@ -222,7 +241,8 @@ export const router = HttpRouter.empty.pipe(
         freeSlots?: number;
       };
       const enclos = yield* repo.all;
-      const all = enclos.flatMap((e) => e.dragodindes);
+      const all = yield* repo.allMounts;
+      const emptySlots = enclos.reduce((s, e) => s + Math.max(0, MAX_DRAGODINDES - e.dragodindes.length), 0);
       const inventory: InvMount[] = all.map((d) => ({
         id: d.id,
         color: d.color,
@@ -236,7 +256,7 @@ export const router = HttpRouter.empty.pipe(
         level: typeof body.level === "number" ? body.level : 60,
         optimakina: body.optimakina === true,
         clonage: body.clonage !== false,
-        freeSlots: typeof body.freeSlots === "number" ? body.freeSlots : Math.max(1, enclos.length),
+        freeSlots: typeof body.freeSlots === "number" ? body.freeSlots : Math.max(1, emptySlots),
       });
       const enc = new TextEncoder();
       const sse = Stream.fromAsyncIterable(it, (e) => new Error(String(e))).pipe(
@@ -269,9 +289,50 @@ export const router = HttpRouter.empty.pipe(
       const baby = yield* repo.recordCross(body as CrossInput);
       return Option.match(baby, {
         onNone: () =>
-          HttpServerResponse.unsafeJson({ error: "Parents not found or enclos full" }, { status: 400 }),
+          HttpServerResponse.unsafeJson({ error: "Parents introuvables ou stable pleine" }, { status: 400 }),
         onSome: (d) => HttpServerResponse.unsafeJson(d),
       });
+    }),
+  ),
+
+  HttpRouter.post(
+    "/api/dragodinde/bulk-move",
+    Effect.gen(function* () {
+      const repo = yield* Repo;
+      const body = (yield* readBody) as { ids?: unknown; enclosId?: number | null };
+      const ids = Array.isArray(body.ids) ? body.ids.filter((x): x is number => typeof x === "number") : [];
+      const enclosId = typeof body.enclosId === "number" ? body.enclosId : null;
+      const { movedIds, skipped } = yield* repo.moveMany(ids, enclosId);
+      return HttpServerResponse.unsafeJson({ moved: movedIds.length, movedIds, skipped });
+    }),
+  ),
+
+  HttpRouter.post(
+    "/api/dragodinde/bulk-patch",
+    Effect.gen(function* () {
+      const repo = yield* Repo;
+      const body = (yield* readBody) as { ids?: unknown; patch?: DragoPatch };
+      const ids = Array.isArray(body.ids) ? body.ids.filter((x): x is number => typeof x === "number") : [];
+      const src = body.patch ?? {};
+      const patch: DragoPatch = {
+        ...(src.status === "sterile" || src.status === "fertile" || src.status === "feconde"
+          ? { status: src.status }
+          : {}),
+        ...(typeof src.keeper === "boolean" ? { keeper: src.keeper } : {}),
+      };
+      const patched = yield* repo.patchMany(ids, patch);
+      return HttpServerResponse.unsafeJson({ patched });
+    }),
+  ),
+
+  HttpRouter.post(
+    "/api/dragodinde/bulk-delete",
+    Effect.gen(function* () {
+      const repo = yield* Repo;
+      const body = (yield* readBody) as { ids?: unknown };
+      const ids = Array.isArray(body.ids) ? body.ids.filter((x): x is number => typeof x === "number") : [];
+      const removed = yield* repo.removeMany(ids);
+      return HttpServerResponse.unsafeJson({ removed });
     }),
   ),
 
@@ -279,18 +340,15 @@ export const router = HttpRouter.empty.pipe(
     "/api/import",
     Effect.gen(function* () {
       const repo = yield* Repo;
-      const body = (yield* readBody) as { enclosId?: number; mounts?: ImportRow[] };
-      if (typeof body.enclosId !== "number" || !Array.isArray(body.mounts)) {
-        return HttpServerResponse.unsafeJson(
-          { error: "import requires enclosId and mounts[]" },
-          { status: 400 },
-        );
+      const body = (yield* readBody) as { mounts?: ImportRow[] };
+      if (!Array.isArray(body.mounts)) {
+        return HttpServerResponse.unsafeJson({ error: "import requires mounts[]" }, { status: 400 });
       }
       const valid = body.mounts.filter(
         (m): m is ImportRow =>
           !!m && typeof m.color === "string" && (m.sex === "M" || m.sex === "F"),
       );
-      const { created, skipped } = yield* repo.importMounts(body.enclosId, valid);
+      const { created, skipped } = yield* repo.importMounts(valid);
       return HttpServerResponse.unsafeJson({ created: created.length, skipped, mounts: created });
     }),
   ),

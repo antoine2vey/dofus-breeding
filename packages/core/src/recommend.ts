@@ -3,7 +3,7 @@
 // and what to recycle (clone same-colour steriles / extract dead-weight). Pure — reused by
 // the /api/recommend endpoint and exposed as a tool to the AI agent.
 
-import { COLORS, COLOR_BY_NAME } from "./colors.js";
+import { COLORS, COLOR_BY_NAME, computePlan, type GenPolicy } from "./colors.js";
 import { crossOdds } from "./odds.js";
 
 const BASES = ["Amande", "Dorée", "Rousse"] as const;
@@ -143,15 +143,28 @@ export function recommend(input: RecommendInput): Recommendation {
     });
   }
 
-  // ── Capture: bases with no féconde stock (pipeline would stall without them) ──
-  const fecondeBaseCount = (c: string) => feconde.filter((m) => m.color === c).length;
+  // ── Capture: only Amande/Dorée/Rousse are wild-capturable. How many of each depends on the
+  //    target generation and what usable stock you already hold — ask the deterministic planner. ──
+  const usableStock: Record<string, number> = {};
+  for (const m of mounts) {
+    if (m.color && m.status !== "sterile" && !m.keeper)
+      usableStock[m.color] = (usableStock[m.color] ?? 0) + 1;
+  }
+  const policy: Record<number, GenPolicy> = {};
+  for (let g = 2; g <= 10; g++) policy[g] = { level, optima: optimakina };
+  const plan = computePlan({
+    maxGen: targetGen,
+    policy,
+    reproducteur: false,
+    inventory: usableStock,
+    clonage: input.clonage,
+    gender: true,
+  });
   const capture: CaptureAction[] = [];
   for (const c of BASES) {
-    const n = fecondeBaseCount(c);
-    if (n === 0) capture.push({ color: c, count: 2, reason: "aucune féconde en stock — base nécessaire" });
-  }
-  if (breed.length === 0 && capture.length === 0) {
-    for (const c of BASES) capture.push({ color: c, count: 2, reason: "amorcer un nouveau cycle" });
+    const n = Math.round(plan.baseCaptures[c] ?? 0);
+    if (n > 0)
+      capture.push({ color: c, count: n, reason: `captures nécessaires pour la gen ${targetGen}` });
   }
 
   // ── Recycle: clone same-colour sterile pairs; extract dead-weight steriles ──

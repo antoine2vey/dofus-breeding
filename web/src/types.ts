@@ -30,6 +30,7 @@ export interface Dragodinde {
   sex: Sex;
   status: ReproStatus;
   keeper: boolean;
+  enclosId: number | null; // null = in the stable (étable)
   parentA: number | null;
   parentB: number | null;
   grandparents: string[];
@@ -58,6 +59,7 @@ export interface Meta {
 
 export interface AppState {
   enclos: Enclos[];
+  stable: Dragodinde[];
   settings: { webhookConfigured: boolean };
   meta: Meta;
 }
@@ -99,7 +101,6 @@ export interface CrossInput {
   parentBId: number;
   color: string;
   sex: Sex;
-  enclosId?: number;
   name?: string;
 }
 
@@ -107,6 +108,5 @@ export interface CloneInput {
   aId: number;
   bId: number;
   sex: Sex;
-  enclosId?: number;
   name?: string;
 }

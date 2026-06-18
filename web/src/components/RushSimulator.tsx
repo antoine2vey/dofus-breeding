@@ -1,25 +1,35 @@
 import { useState } from "react";
 import { GEN_COLOR } from "@dd/core";
-import { monteCarlo, makeRng, type SimSummary } from "@dd/core";
+import { monteCarlo, makeRng, type SimMount, type SimSummary } from "@dd/core";
+import type { Dragodinde } from "../types";
 
 const fmt = (n: number) => Math.round(n).toLocaleString("fr-FR");
 
-export function RushSimulator() {
+/** Your real mounts -> sim feedstock (skip uncoloured & keepers; sterile = clonage feedstock). */
+export const toSimInventory = (mounts: Dragodinde[]): SimMount[] =>
+  mounts
+    .filter((m) => m.color && !m.keeper)
+    .map((m) => ({ race: m.color, sex: m.sex === "M" ? 0 : 1, gp: m.grandparents, fertile: m.status !== "sterile" }));
+
+export function RushSimulator({ mounts }: { mounts: Dragodinde[] }) {
   const [targetGen, setTargetGen] = useState(10);
   const [level, setLevel] = useState(60);
   const [optimakina, setOptimakina] = useState(false);
   const [clonage, setClonage] = useState(true);
   const [runs, setRuns] = useState(1000);
+  const [useCheptel, setUseCheptel] = useState(true);
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<SimSummary | null>(null);
 
   const pTarget = Math.min(1, 0.3 + 0.0015 * 2 * level + (optimakina ? 0.1 : 0));
+  const usable = toSimInventory(mounts);
 
   const run = () => {
     setBusy(true);
     // Defer so the "calcul…" state paints before the (sync) sim blocks the thread.
     setTimeout(() => {
-      const s = monteCarlo({ targetGen, level, optimakina, clonage, maxSteps: 0 }, runs, makeRng(1234));
+      const inventory = useCheptel ? usable : undefined;
+      const s = monteCarlo({ targetGen, level, optimakina, clonage, maxSteps: 0, inventory }, runs, makeRng(1234));
       setRes(s);
       setBusy(false);
     }, 20);
@@ -29,7 +39,9 @@ export function RushSimulator() {
     <div className="pane planner">
       <div className="pane-head">
         <h2>🚀 Simulateur — rush Génération {targetGen}</h2>
-        <span className="muted">Monte Carlo · moteur de probabilités validé</span>
+        <span className="muted">
+          Monte Carlo · tient compte des grands-parents (lignée){useCheptel && usable.length > 0 ? " · depuis ton cheptel" : ""}
+        </span>
       </div>
 
       <div className="plan-controls">
@@ -54,6 +66,10 @@ export function RushSimulator() {
         <label className="chk">
           <input type="checkbox" checked={clonage} onChange={(e) => setClonage(e.target.checked)} />
           Clonage
+        </label>
+        <label className="chk" title="Démarre depuis tes montures réelles (couleurs + grands-parents), pas de zéro">
+          <input type="checkbox" checked={useCheptel} onChange={(e) => setUseCheptel(e.target.checked)} disabled={usable.length === 0} />
+          Depuis mon cheptel ({usable.length})
         </label>
         <label>
           Simulations

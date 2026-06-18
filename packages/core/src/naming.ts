@@ -3,13 +3,17 @@
 // Designed + adversarially verified against all 66 colours: every name is ASCII
 // letters/space/hyphen only, no digits, no accents, far under 20 chars; all codes unique.
 //
-// Format:  <code>-[K]<sex><index>
+// Format:  <code>-[K-]<sex>-<index>[-<gp1>[-<gp2>]]
 //   <code>  1 base-letter (pure colour) or 2 base-letters (bicolour, in canonical
 //           in-game order: the colour before "et" then the one after).
 //   K        literal uppercase K only for KEEPERS (the copy to protect); omitted for stock.
 //   <sex>    lowercase f (female) / m (male).
 //   <index>  bijective base-26 lowercase copy number (a,b,…,z,aa,…) — every copy gets one.
-// One hyphen, between the colour code and the suffix.
+//   <gp>     0..2 grandparent (parent) colour codes, canonical (sorted by code).
+// Every field is its OWN hyphen-delimited segment. We deliberately split the keeper/sex/index
+// apart (e.g. `a-m-j-a-d`, not `a-mj-a-d`) because the in-game namer chokes on some 2-letter
+// chunks; single-letter segments name reliably. parseName still accepts the old combined
+// `<code>-[K]<sex><index>` form so mounts named under the previous scheme keep parsing.
 //
 // Sort (alphabetical, as the in-game list does): colour → keepers (uppercase K floats
 // above lowercase) → females before males → index. So a colour's whole pool reads as one
@@ -92,37 +96,63 @@ function grandparentCodes(gps: ReadonlyArray<string> | undefined): string[] {
     .slice(0, 2);
 }
 
-/** Build a valid in-game name from its parts. Appends the two grandparent codes when known:
- *  `<own>-[K]<sex><index>[-<gp1>[-<gp2>]]`, e.g. `i-fa-e-ei`. */
+/** Build a valid in-game name from its parts. Every field is its own hyphen segment and the
+ *  grandparent codes are appended when known: `<own>-[K-]<sex>-<index>[-<gp1>[-<gp2>]]`,
+ *  e.g. `a-m-j-a-d` or, for a keeper, `i-K-f-a-e-ei`. */
 export function buildName(p: NameParts): string {
-  const suffix = (p.keeper ? "K" : "") + (p.sex === "F" ? "f" : "m") + indexToCode(p.index);
-  const gps = grandparentCodes(p.grandparents);
-  return [colorCode(p.color), suffix, ...gps].join("-");
+  const head = [colorCode(p.color)];
+  if (p.keeper) head.push("K");
+  head.push(p.sex === "F" ? "f" : "m");
+  head.push(indexToCode(p.index));
+  return [...head, ...grandparentCodes(p.grandparents)].join("-");
 }
 
-/** Decode a name written in this convention. null if it doesn't match the format. */
+/** Decode a name written in this convention. Accepts both the current split form
+ *  (`<code>-[K-]<sex>-<index>[-gp…]`) and the legacy combined form
+ *  (`<code>-[K]<sex><index>[-gp…]`). null if it doesn't match either. */
 export function parseName(name: string): NameParts | null {
   const parts = name.trim().split("-");
-  if (parts.length < 2 || parts.length > 4) return null;
-  const [ownCode, suffix, ...gpCodes] = parts;
+  if (parts.length < 2) return null;
+  const [ownCode, ...rest] = parts;
   if (!/^[a-z]{1,2}$/.test(ownCode)) return null;
   const color = CODE_TO_COLOR[ownCode];
   if (!color) return null;
-  const sm = /^(K?)([fm])([a-z]+)$/.exec(suffix);
-  if (!sm) return null;
+
+  let keeper: boolean;
+  let sex: Sex;
+  let index: number;
+  let gpCodes: string[];
+
+  if (rest[0] === "K" || rest[0] === "f" || rest[0] === "m") {
+    // Split form: keeper/sex/index are separate single-letter segments.
+    let i = 0;
+    keeper = rest[i] === "K";
+    if (keeper) i++;
+    if (rest[i] !== "f" && rest[i] !== "m") return null;
+    sex = rest[i] === "f" ? "F" : "M";
+    i++;
+    const idx = rest[i];
+    if (!idx || !/^[a-z]+$/.test(idx)) return null;
+    index = codeToIndex(idx);
+    gpCodes = rest.slice(i + 1);
+  } else {
+    // Legacy combined suffix: [K]<sex><index> as one segment.
+    const sm = /^(K?)([fm])([a-z]+)$/.exec(rest[0]);
+    if (!sm) return null;
+    keeper = sm[1] === "K";
+    sex = sm[2] === "f" ? "F" : "M";
+    index = codeToIndex(sm[3]);
+    gpCodes = rest.slice(1);
+  }
+
+  if (gpCodes.length > 2) return null;
   const grandparents: string[] = [];
   for (const gc of gpCodes) {
     const gColor = CODE_TO_COLOR[gc];
     if (!gColor) return null; // an unrecognised grandparent code invalidates the whole name
     grandparents.push(gColor);
   }
-  return {
-    color,
-    keeper: sm[1] === "K",
-    sex: sm[2] === "f" ? "F" : "M",
-    index: codeToIndex(sm[3]),
-    grandparents,
-  };
+  return { color, keeper, sex, index, grandparents };
 }
 
 export const genOf = (color: string) => COLOR_BY_NAME.get(color)?.gen ?? 0;

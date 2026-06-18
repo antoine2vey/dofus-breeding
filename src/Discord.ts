@@ -56,6 +56,9 @@ export class Discord extends Effect.Service<Discord>()("app/Discord", {
       Effect.gen(function* () {
         if (items.length === 0) return;
         const lines = items.map((it) => {
+          if (it.kind === "feconde") {
+            return `• 💗 **${it.dragodinde.name}** _(${it.enclosName})_ — féconde, prête à reproduire !`;
+          }
           const focus = it.focus.map(labelFor).join(" + ") || "—";
           return `• **${it.dragodinde.name}** _(${it.enclosName})_ — ${focus} maxed`;
         });

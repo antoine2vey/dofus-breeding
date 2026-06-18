@@ -7,16 +7,16 @@
 // plus which colours the winning line breeds most (the breeding priorities).
 
 import { COLORS, COLOR_BY_NAME } from "./colors.js";
-import { crossOdds, type Mount } from "./odds.js";
+import { crossOdds } from "./odds.js";
 
 const BASE = ["Amande", "Dorée", "Rousse"] as const;
 type Sex = 0 | 1;
 
-interface SimMount {
+export interface SimMount {
   race: string;
   sex: Sex;
   gp: readonly string[]; // grandparent races (the mount's parents)
-  fertile: boolean;
+  fertile: boolean; // true = usable as a parent now; false = sterile (clonage feedstock)
 }
 
 export interface SimConfig {
@@ -26,6 +26,9 @@ export interface SimConfig {
   optimakina: boolean;
   clonage: boolean;
   maxSteps?: number;
+  /** Your real stock (with grandparents), seeded into the pools so the run starts from your
+   * actual cheptel — including lineage pollution — instead of from scratch. */
+  inventory?: ReadonlyArray<SimMount>;
 }
 
 export interface SimRun {
@@ -67,8 +70,15 @@ export function simulateOnce(cfg: SimConfig, rng: () => number): SimRun {
   const take = (map: Map<string, SimMount[]>, race: string): SimMount | null =>
     map.get(race)?.pop() ?? null;
 
-  const sample = (m: Mount, f: Mount): string => {
-    const r = crossOdds(m, f, 2 * cfg.level, cfg.optimakina);
+  const sample = (m: SimMount, f: SimMount): string => {
+    // crossOdds reads `grandparents`; SimMount stores them in `gp` — map them across or the
+    // genealogy (and the target generation it implies) is silently ignored.
+    const r = crossOdds(
+      { race: m.race, grandparents: m.gp },
+      { race: f.race, grandparents: f.gp },
+      2 * cfg.level,
+      cfg.optimakina,
+    );
     let x = rng();
     for (const o of r.outcomes) {
       x -= o.prob;
@@ -119,6 +129,13 @@ export function simulateOnce(cfg: SimConfig, rng: () => number): SimRun {
       push(fertile, baby); // useful byproduct -> reuse later
     }
   };
+
+  // Seed the pools with your real stock (fresh copy per run so runs don't share mutable state).
+  // produce() reuses these before capturing/breeding from scratch; their grandparents flow into
+  // crossOdds, so a lineage-polluted mount genuinely shifts the outcome distribution.
+  for (const m of cfg.inventory ?? []) {
+    push(m.fertile ? fertile : sterile, { race: m.race, sex: m.sex, gp: m.gp, fertile: m.fertile });
+  }
 
   const target = cfg.targetColor ?? targetColorFor(cfg.targetGen);
   produce(target, 0);

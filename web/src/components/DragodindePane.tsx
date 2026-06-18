@@ -77,12 +77,14 @@ function DragoRow({
   focus,
   meta,
   onPatch,
+  onMove,
   onDelete,
 }: {
   drago: Dragodinde;
   focus: Enclos["focus"];
   meta: Meta;
   onPatch: (id: number, body: DragoPatch) => void;
+  onMove: (id: number) => void;
   onDelete: (id: number) => void;
 }) {
   const done = isDone(focus, drago.stats, meta);
@@ -106,6 +108,9 @@ function DragoRow({
         {done && <span className="done-badge">✓</span>}
         <button className="ghost mini" title="Reset stats" onClick={reset}>
           ↺
+        </button>
+        <button className="ghost mini" title="Renvoyer à l'étable" onClick={() => onMove(drago.id)}>
+          → étable
         </button>
         <button
           className="ghost mini"
@@ -137,31 +142,26 @@ export function DragodindePane({
   enclos,
   meta,
   onDragoPatch,
-  onDragoAdd,
+  onDragoMove,
   onDragoDelete,
 }: {
   enclos: Enclos | undefined;
   meta: Meta;
   onDragoPatch: (id: number, body: DragoPatch) => void;
-  onDragoAdd: (enclosId: number) => void;
+  onDragoMove: (id: number, enclosId: number | null) => void;
   onDragoDelete: (id: number) => void;
 }) {
-  if (!enclos) return <section className="pane" />;
+  if (!enclos) return <section className="pane"><div className="empty">Sélectionne un enclos.</div></section>;
   return (
     <section className="pane">
       <div className="pane-head">
         <h2>
           {enclos.name} · Dragodindes <span className="muted">({enclos.dragodindes.length}/{meta.maxDragodindes})</span>
         </h2>
-        {enclos.dragodindes.length < meta.maxDragodindes && (
-          <button className="mini" onClick={() => onDragoAdd(enclos.id)}>
-            + dragodinde
-          </button>
-        )}
       </div>
       <div className="drago-list">
         {enclos.dragodindes.length === 0 && (
-          <div className="empty">No dragodinde — click “+ dragodinde”.</div>
+          <div className="empty">Vide — glisse une monture de l'étable ici pour monter ses jauges.</div>
         )}
         {enclos.dragodindes.map((d) => (
           <DragoRow
@@ -170,6 +170,7 @@ export function DragodindePane({
             focus={enclos.focus}
             meta={meta}
             onPatch={onDragoPatch}
+            onMove={(id) => onDragoMove(id, null)}
             onDelete={onDragoDelete}
           />
         ))}

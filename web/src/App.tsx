@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import type { AppState, DragoPatch, EnclosPatch } from "./types";
-import { EnclosPane } from "./components/EnclosPane";
-import { DragodindePane } from "./components/DragodindePane";
+import { EnclosWorkspace } from "./components/EnclosWorkspace";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { OddsCalculator } from "./components/OddsCalculator";
 import { RushSimulator } from "./components/RushSimulator";
@@ -64,9 +63,9 @@ export default function App() {
     },
     [refresh],
   );
-  const onDragoAdd = useCallback(
-    async (enclosId: number) => {
-      await api.addDragodinde(enclosId);
+  const onDragoMove = useCallback(
+    async (id: number, enclosId: number | null) => {
+      await api.moveDragodinde(id, enclosId);
       refresh();
     },
     [refresh],
@@ -81,8 +80,8 @@ export default function App() {
 
   if (!state) return <div className="loading">Loading…</div>;
 
-  const { enclos, meta, settings } = state;
-  const active = enclos.find((e) => e.id === activeId) ?? enclos[0];
+  const { enclos, stable, meta, settings } = state;
+  const allMounts = [...stable, ...enclos.flatMap((e) => e.dragodindes)];
 
   return (
     <>
@@ -93,13 +92,13 @@ export default function App() {
             className={"tab" + (tab === "tracker" ? " active" : "")}
             onClick={() => setTab("tracker")}
           >
-            Élevage
+            Enclos
           </button>
           <button
             className={"tab" + (tab === "herd" ? " active" : "")}
             onClick={() => setTab("herd")}
           >
-            Cheptel
+            Étable
           </button>
           <button
             className={"tab" + (tab === "assistant" ? " active" : "")}
@@ -143,27 +142,22 @@ export default function App() {
       </header>
 
       {tab === "tracker" ? (
-        <div className="split">
-          <EnclosPane
-            enclos={enclos}
-            activeId={active?.id ?? null}
-            meta={meta}
-            onSelect={setActiveId}
-            onEnclosPatch={onEnclosPatch}
-            onEnclosAdd={onEnclosAdd}
-            onEnclosDelete={onEnclosDelete}
-          />
-          <DragodindePane
-            enclos={active}
-            meta={meta}
-            onDragoPatch={onDragoPatch}
-            onDragoAdd={onDragoAdd}
-            onDragoDelete={onDragoDelete}
-          />
-        </div>
+        <EnclosWorkspace
+          enclos={enclos}
+          stable={stable}
+          activeId={activeId}
+          meta={meta}
+          onSelect={setActiveId}
+          onEnclosPatch={onEnclosPatch}
+          onEnclosAdd={onEnclosAdd}
+          onEnclosDelete={onEnclosDelete}
+          onDragoPatch={onDragoPatch}
+          onDragoMove={onDragoMove}
+          onDragoDelete={onDragoDelete}
+        />
       ) : tab === "herd" ? (
         <div className="split">
-          <HerdTab enclos={enclos} onChanged={refresh} />
+          <HerdTab enclos={enclos} stable={stable} onChanged={refresh} />
         </div>
       ) : tab === "assistant" ? (
         <div className="split">
@@ -171,7 +165,7 @@ export default function App() {
         </div>
       ) : tab === "planner" ? (
         <div className="split">
-          <BreedingTree />
+          <BreedingTree mounts={allMounts} />
         </div>
       ) : tab === "odds" ? (
         <div className="split">
@@ -179,7 +173,7 @@ export default function App() {
         </div>
       ) : tab === "sim" ? (
         <div className="split">
-          <RushSimulator />
+          <RushSimulator mounts={allMounts} />
         </div>
       ) : (
         <div className="split">

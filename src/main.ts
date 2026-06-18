@@ -1,3 +1,4 @@
+import "dotenv/config"; // load .env into process.env BEFORE any Config is read
 import "./polyfill.js";
 import { HttpServer } from "@effect/platform";
 import { NodeContext, NodeHttpClient, NodeHttpServer, NodeRuntime } from "@effect/platform-node";

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useDroppable } from "@dnd-kit/core";
 import type { Bar, Enclos, EnclosPatch, FocusKey, FuelKey, Meta } from "../types";
 import {
   FUEL_MAX,
@@ -152,6 +153,37 @@ function FuelRow({
   );
 }
 
+/** One enclos in the list — also a drop target for mounts dragged from the stable. */
+function EnclosRow({
+  e,
+  active,
+  meta,
+  onSelect,
+}: {
+  e: Enclos;
+  active: boolean;
+  meta: Meta;
+  onSelect: (id: number) => void;
+}) {
+  const { isOver, setNodeRef } = useDroppable({ id: `enclos-${e.id}` });
+  const done = enclosDoneCount(e, meta);
+  const full = e.dragodindes.length >= meta.maxDragodindes;
+  return (
+    <button
+      ref={setNodeRef}
+      className={"enclos-row" + (active ? " active" : "") + (isOver ? " drop-over" : "")}
+      onClick={() => onSelect(e.id)}
+    >
+      <span className="er-name">{e.name}</span>
+      <span className="er-meta">
+        <span className={full ? "er-full" : ""}>{e.dragodindes.length}/{meta.maxDragodindes}🐉</span>
+        {done > 0 && <span className="er-done"> · {done}✓</span>}
+      </span>
+      <span className="er-focus">{focusLabels(e.focus, meta).join(" + ") || "—"}</span>
+    </button>
+  );
+}
+
 export function EnclosPane({
   enclos,
   activeId,
@@ -190,23 +222,9 @@ export function EnclosPane({
       </div>
 
       <div className="enclos-list">
-        {enclos.map((e) => {
-          const done = enclosDoneCount(e, meta);
-          return (
-            <button
-              key={e.id}
-              className={"enclos-row" + (e.id === activeId ? " active" : "")}
-              onClick={() => onSelect(e.id)}
-            >
-              <span className="er-name">{e.name}</span>
-              <span className="er-meta">
-                {e.dragodindes.length}🐉
-                {done > 0 && <span className="er-done"> · {done}✓</span>}
-              </span>
-              <span className="er-focus">{focusLabels(e.focus, meta).join(" + ") || "—"}</span>
-            </button>
-          );
-        })}
+        {enclos.map((e) => (
+          <EnclosRow key={e.id} e={e} active={e.id === activeId} meta={meta} onSelect={onSelect} />
+        ))}
       </div>
 
       {active && (

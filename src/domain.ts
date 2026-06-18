@@ -9,7 +9,8 @@ export const SERENITY_MAX = 5000;
 export const SERENITY_GOAL = 200; // serenity "done" when within [-200, +200]
 export const FUEL_MAX = 100000;
 export const MAX_ENCLOS = 6;
-export const MAX_DRAGODINDES = 10;
+export const MAX_DRAGODINDES = 10; // hard cap of mounts placed in a single enclos
+export const MAX_STABLE = 250; // soft cap of the stable (the master collection)
 export const MAX_FOCUS = 2; // at most 2 focused stats per enclos (rolling)
 
 export type FuelKey = "serenityMinus" | "serenityPlus" | "endurance" | "maturite" | "amour";
@@ -61,6 +62,7 @@ export interface Dragodinde {
   readonly sex: Sex;
   readonly status: ReproStatus; // sterile (bred) → fertile (not ready) → feconde (ready now)
   readonly keeper: boolean; // the achievement copy to protect from breeding
+  readonly enclosId: number | null; // null = in the stable (étable); otherwise the enclos it's in
   readonly parentA: number | null; // dragodinde id of a parent (for genealogy / grandparents)
   readonly parentB: number | null;
   // Grandparent colours (= this mount's parents' colours) stored denormalised, so they survive
@@ -108,6 +110,7 @@ export const makeDragodinde = (id: number, name?: string): Dragodinde => ({
   sex: "F",
   status: "fertile",
   keeper: false,
+  enclosId: null,
   parentA: null,
   parentB: null,
   grandparents: [],
@@ -156,7 +159,9 @@ const gainStats = (stats: Stats, rates: Record<FuelKey, number>): Stats => {
  * gains to every dragodinde. Returns the new enclos and the dragodindes that
  * *just* completed (rising edge), so the caller can send a grouped notification.
  */
-export const tickEnclos = (e: Enclos): { enclos: Enclos; completed: ReadonlyArray<Dragodinde> } => {
+export const tickEnclos = (
+  e: Enclos,
+): { enclos: Enclos; completed: ReadonlyArray<Dragodinde>; becameFeconde: ReadonlyArray<Dragodinde> } => {
   const rates: Record<FuelKey, number> = { ...emptyFuel() };
   const fuel: Record<FuelKey, number> = { ...e.fuel };
   for (const bar of BARS) {
@@ -169,12 +174,15 @@ export const tickEnclos = (e: Enclos): { enclos: Enclos; completed: ReadonlyArra
   }
 
   const completed: Array<Dragodinde> = [];
+  const becameFeconde: Array<Dragodinde> = [];
   const dragodindes = e.dragodindes.map((d) => {
     const stats = gainStats(d.stats, rates);
     const done = focusAllMaxed(e.focus, stats);
     const status = reproStatus(d.status, stats); // gauges maxed -> becomes féconde
-    if (done && !d.notified) completed.push({ ...d, stats, notified: true, status });
-    return { ...d, stats, notified: done, status };
+    const next = { ...d, stats, notified: done, status };
+    if (done && !d.notified) completed.push(next);
+    if (status === "feconde" && d.status !== "feconde") becameFeconde.push(next);
+    return next;
   });
 
   // Auto-uncheck any focused bar whose goal is now reached by EVERY dragodinde.
@@ -183,5 +191,5 @@ export const tickEnclos = (e: Enclos): { enclos: Enclos; completed: ReadonlyArra
       ? e.focus.filter((k) => !dragodindes.every((d) => barGoalReached(BAR_BY_KEY[k], d.stats)))
       : e.focus;
 
-  return { enclos: { ...e, fuel, dragodindes, focus }, completed };
+  return { enclos: { ...e, fuel, dragodindes, focus }, completed, becameFeconde };
 };

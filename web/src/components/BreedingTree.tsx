@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { COLORS, COLOR_BY_NAME, GEN_COLOR } from "@dd/core";
 import { crossOdds } from "@dd/core";
 import { monteCarlo, makeRng } from "@dd/core";
+import type { Dragodinde } from "../types";
+import { toSimInventory } from "./RushSimulator";
 
 const POTENTIAL: Record<string, number> = (() => {
   const pot: Record<string, number> = {};
@@ -94,13 +96,18 @@ function TreeNode({
   );
 }
 
-export function BreedingTree() {
+export function BreedingTree({ mounts }: { mounts: Dragodinde[] }) {
   const gen10 = COLORS.filter((c) => c.gen === 10).map((c) => c.name);
   const [target, setTarget] = useState("Emeraude");
   const [level, setLevel] = useState(60);
   const [optima, setOptima] = useState(false);
   const [clonage, setClonage] = useState(true);
+  const [useCheptel, setUseCheptel] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(["root"]));
+  // Stable signature so the (sync) sim only re-runs when stock content actually changes, not on
+  // every 3s poll (which hands us a fresh array reference with identical data).
+  const usable = toSimInventory(mounts);
+  const invSig = JSON.stringify(usable);
 
   const toggle = (p: string) =>
     setExpanded((s) => {
@@ -112,14 +119,23 @@ export function BreedingTree() {
   const anc = useMemo(() => ancestry(target), [target]);
 
   // Monte Carlo for THIS target colour -> expected count of each colour produced.
+  // Seeds from your real stock (grandparents included) when "depuis mon cheptel" is on.
   const mc = useMemo(
     () =>
       monteCarlo(
-        { targetGen: genOf(target), targetColor: target, level, optimakina: optima, clonage, maxSteps: 0 },
+        {
+          targetGen: genOf(target),
+          targetColor: target,
+          level,
+          optimakina: optima,
+          clonage,
+          maxSteps: 0,
+          inventory: useCheptel ? (JSON.parse(invSig) as ReturnType<typeof toSimInventory>) : undefined,
+        },
         300,
         makeRng(1234),
       ),
-    [target, level, optima, clonage],
+    [target, level, optima, clonage, useCheptel, invSig],
   );
 
   const stat = useMemo(() => {
@@ -194,6 +210,10 @@ export function BreedingTree() {
         <label className="chk">
           <input type="checkbox" checked={clonage} onChange={(e) => setClonage(e.target.checked)} />
           Clonage
+        </label>
+        <label className="chk" title="Démarre depuis tes montures réelles (grands-parents inclus)">
+          <input type="checkbox" checked={useCheptel} onChange={(e) => setUseCheptel(e.target.checked)} disabled={usable.length === 0} />
+          Depuis mon cheptel ({usable.length})
         </label>
         <button className="ghost mini" onClick={expandAll}>
           tout déplier

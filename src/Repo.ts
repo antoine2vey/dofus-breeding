@@ -15,6 +15,7 @@ import {
   MAX_DRAGODINDES,
   MAX_ENCLOS,
   MAX_FOCUS,
+  MAX_STABLE,
   SERENITY_MAX,
   SERENITY_MIN,
   STAT_MAX,
@@ -38,7 +39,7 @@ interface EnclosRow {
 
 interface DragoRow {
   readonly id: number;
-  readonly enclos_id: number;
+  readonly enclos_id: number | null;
   readonly name: string;
   readonly stat_endurance: number;
   readonly stat_maturite: number;
@@ -76,6 +77,7 @@ const dragoFromRow = (r: DragoRow): Dragodinde => ({
   sex: (r.sex === "M" ? "M" : "F") as Sex,
   status: statusFromRow(r),
   keeper: (r.keeper ?? 0) === 1,
+  enclosId: r.enclos_id ?? null,
   parentA: r.parent_a_id ?? null,
   parentB: r.parent_b_id ?? null,
   grandparents: [r.grand_a, r.grand_b].filter((c): c is string => !!c),
@@ -122,26 +124,25 @@ export interface SeedInput {
   readonly name?: string;
 }
 
-/** Record one breeding: a baby of `color`/`sex` whose parents are sterilised. */
+/** Record one breeding: a baby of `color`/`sex` (born to the stable) whose parents are sterilised. */
 export interface CrossInput {
   readonly parentAId: number;
   readonly parentBId: number;
   readonly color: string;
   readonly sex: Sex;
-  readonly enclosId?: number; // defaults to parent A's enclos
   readonly name?: string;
 }
 
-/** Record one clonage: two same-colour steriles consumed -> one fresh fertile of that colour. */
+/** Record one clonage: two same-colour steriles consumed -> one fresh fertile (born to the stable). */
 export interface CloneInput {
   readonly aId: number;
   readonly bId: number;
   readonly sex: Sex; // the gender that actually came back
-  readonly enclosId?: number; // defaults to input A's enclos
   readonly name?: string;
 }
 
 export interface CompletedItem {
+  readonly kind: "focus" | "feconde"; // focus goals maxed, or just became féconde (ready to breed)
   readonly enclosName: string;
   readonly focus: ReadonlyArray<FocusKey>;
   readonly dragodinde: Dragodinde;
@@ -182,7 +183,7 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
     yield* sql`
       CREATE TABLE IF NOT EXISTS dragodinde (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        enclos_id INTEGER NOT NULL REFERENCES enclos(id) ON DELETE CASCADE,
+        enclos_id INTEGER REFERENCES enclos(id) ON DELETE SET NULL,
         name TEXT NOT NULL,
         stat_endurance INTEGER NOT NULL DEFAULT 0,
         stat_maturite INTEGER NOT NULL DEFAULT 0,
@@ -210,6 +211,43 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
         WHEN fertile = 0 THEN 'sterile'
         WHEN stat_endurance >= ${STAT_MAX} AND stat_maturite >= ${STAT_MAX} AND stat_amour >= ${STAT_MAX} THEN 'feconde'
         ELSE 'fertile' END`;
+    }
+
+    // Étable rework: enclos_id must be NULLABLE (null = stable) with ON DELETE SET NULL. Old DBs
+    // created it NOT NULL + ON DELETE CASCADE — rebuild the table (SQLite can't ALTER a constraint).
+    const enclosCol = dragoCols.length
+      ? yield* sql<{ name: string; notnull: number }>`SELECT name, "notnull" FROM pragma_table_info('dragodinde')`
+      : [];
+    const enclosNotNull = enclosCol.find((c) => c.name === "enclos_id")?.notnull === 1;
+    if (enclosNotNull) {
+      yield* sql`
+        CREATE TABLE dragodinde_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          enclos_id INTEGER REFERENCES enclos(id) ON DELETE SET NULL,
+          name TEXT NOT NULL,
+          stat_endurance INTEGER NOT NULL DEFAULT 0,
+          stat_maturite INTEGER NOT NULL DEFAULT 0,
+          stat_amour INTEGER NOT NULL DEFAULT 0,
+          stat_serenity INTEGER NOT NULL DEFAULT 0,
+          notified INTEGER NOT NULL DEFAULT 0,
+          color TEXT NOT NULL DEFAULT '',
+          sex TEXT NOT NULL DEFAULT 'F',
+          fertile INTEGER NOT NULL DEFAULT 1,
+          keeper INTEGER NOT NULL DEFAULT 0,
+          parent_a_id INTEGER,
+          parent_b_id INTEGER,
+          grand_a TEXT,
+          grand_b TEXT,
+          status TEXT NOT NULL DEFAULT 'fertile'
+        )`;
+      yield* sql`
+        INSERT INTO dragodinde_new
+          (id, enclos_id, name, stat_endurance, stat_maturite, stat_amour, stat_serenity, notified,
+           color, sex, fertile, keeper, parent_a_id, parent_b_id, grand_a, grand_b, status)
+        SELECT id, enclos_id, name, stat_endurance, stat_maturite, stat_amour, stat_serenity, notified,
+           color, sex, fertile, keeper, parent_a_id, parent_b_id, grand_a, grand_b, status FROM dragodinde`;
+      yield* sql`DROP TABLE dragodinde`;
+      yield* sql`ALTER TABLE dragodinde_new RENAME TO dragodinde`;
     }
     yield* ensureCol("parent_a_id", "parent_a_id INTEGER");
     yield* ensureCol("parent_b_id", "parent_b_id INTEGER");
@@ -271,6 +309,7 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
 
     interface InsertOpts {
       readonly name: string;
+      readonly enclosId?: number | null; // default null = born into the stable
       readonly color?: string;
       readonly sex?: Sex;
       readonly status?: ReproStatus;
@@ -279,7 +318,7 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
       readonly parentB?: number | null;
       readonly grandparents?: ReadonlyArray<string>;
     }
-    const insertDrago = (enclosId: number, opts: InsertOpts) =>
+    const insertDrago = (opts: InsertOpts) =>
       Effect.gen(function* () {
         const gps = opts.grandparents ?? [];
         const status = opts.status ?? "fertile";
@@ -287,7 +326,7 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
           INSERT INTO dragodinde
             (enclos_id, name, color, sex, status, fertile, keeper, parent_a_id, parent_b_id, grand_a, grand_b)
           VALUES (
-            ${enclosId}, ${opts.name}, ${opts.color ?? ""}, ${opts.sex ?? "F"},
+            ${opts.enclosId ?? null}, ${opts.name}, ${opts.color ?? ""}, ${opts.sex ?? "F"},
             ${status}, ${status === "sterile" ? 0 : 1}, ${opts.keeper ? 1 : 0},
             ${opts.parentA ?? null}, ${opts.parentB ?? null}, ${gps[0] ?? null}, ${gps[1] ?? null}
           ) RETURNING *
@@ -297,9 +336,10 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
 
     const all = Effect.gen(function* () {
       const enclosRows = yield* sql<EnclosRow>`SELECT * FROM enclos ORDER BY id`;
-      const dragoRows = yield* sql<DragoRow>`SELECT * FROM dragodinde ORDER BY id`;
+      const dragoRows = yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE enclos_id IS NOT NULL ORDER BY id`;
       const byEnclos = new Map<number, Array<Dragodinde>>();
       for (const r of dragoRows) {
+        if (r.enclos_id == null) continue;
         const list = byEnclos.get(r.enclos_id) ?? [];
         list.push(dragoFromRow(r));
         byEnclos.set(r.enclos_id, list);
@@ -315,6 +355,15 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
       );
     });
 
+    /** The stable: every mount not currently placed in an enclos. */
+    const stable = sql<DragoRow>`SELECT * FROM dragodinde WHERE enclos_id IS NULL ORDER BY id`.pipe(
+      Effect.map((rows) => rows.map(dragoFromRow)),
+    );
+    /** Every mount, wherever it lives (for the recommender / AI inventory). */
+    const allMounts = sql<DragoRow>`SELECT * FROM dragodinde ORDER BY id`.pipe(
+      Effect.map((rows) => rows.map(dragoFromRow)),
+    );
+
     const countEnclos = sql<{ n: number }>`SELECT COUNT(*) AS n FROM enclos`.pipe(
       Effect.map((rows) => rows[0]?.n ?? 0),
     );
@@ -322,6 +371,9 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
       sql<{ n: number }>`SELECT COUNT(*) AS n FROM dragodinde WHERE enclos_id = ${enclosId}`.pipe(
         Effect.map((rows) => rows[0]?.n ?? 0),
       );
+    const countStable = sql<{ n: number }>`SELECT COUNT(*) AS n FROM dragodinde WHERE enclos_id IS NULL`.pipe(
+      Effect.map((rows) => rows[0]?.n ?? 0),
+    );
 
     const createEnclos = Effect.gen(function* () {
       if ((yield* countEnclos) >= MAX_ENCLOS) return Option.none<Enclos>();
@@ -342,7 +394,8 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
     const removeEnclos = (id: number) =>
       Effect.gen(function* () {
         if ((yield* countEnclos) <= 1) return false;
-        yield* sql`DELETE FROM dragodinde WHERE enclos_id = ${id}`;
+        // Mounts inside go back to the stable (not destroyed) — they're your collection.
+        yield* sql`UPDATE dragodinde SET enclos_id = NULL WHERE enclos_id = ${id}`;
         yield* sql`DELETE FROM enclos WHERE id = ${id}`;
         return true;
       });
@@ -378,27 +431,22 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
         return true;
       });
 
-    const addDrago = (enclosId: number, seed?: SeedInput) =>
+    /** Seed one mount into the stable (no enclos). */
+    const addDrago = (seed?: SeedInput) =>
       Effect.gen(function* () {
-        const rows = yield* sql<{ focus: string }>`SELECT focus FROM enclos WHERE id = ${enclosId}`;
-        if (!rows[0]) return Option.none<Dragodinde>();
-        const n = yield* countDragos(enclosId);
-        if (n >= MAX_DRAGODINDES) return Option.none<Dragodinde>();
-        const created = yield* insertDrago(enclosId, {
+        const n = yield* countStable;
+        if (n >= MAX_STABLE) return Option.none<Dragodinde>();
+        const created = yield* insertDrago({
           name: seed?.name ?? `Dragodinde ${n + 1}`,
           color: seed?.color,
           sex: seed?.sex,
           status: seed?.status,
         });
-        // A fresh dragodinde that already satisfies the focus (e.g. serenity 0 in band)
-        // is marked done so it won't ping.
-        const focus = sanitizeFocus(JSON.parse(rows[0].focus) as ReadonlyArray<string>);
-        const drago = withDoneState(created, focus);
-        if (drago.notified !== created.notified) yield* writeDrago(drago);
-        return Option.some(drago);
+        return Option.some(created);
       });
 
-    /** Record a real breeding: insert the baby with its parents, sterilise both parents. */
+    /** Record a real breeding: baby born into the stable; both parents become sterile AND are
+     * auto-evicted from any enclos back to the stable (they can't usefully tick anymore). */
     const recordCross = (input: CrossInput) =>
       sql.withTransaction(
         Effect.gen(function* () {
@@ -408,10 +456,8 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
           const a = parents.find((p) => p.id === input.parentAId);
           const b = parents.find((p) => p.id === input.parentBId);
           if (!a || !b) return Option.none<Dragodinde>();
-          const enclosId = input.enclosId ?? a.enclos_id;
-          const n = yield* countDragos(enclosId);
-          if (n >= MAX_DRAGODINDES) return Option.none<Dragodinde>();
-          const baby = yield* insertDrago(enclosId, {
+          if ((yield* countStable) >= MAX_STABLE) return Option.none<Dragodinde>();
+          const baby = yield* insertDrago({
             name: input.name ?? input.color,
             color: input.color,
             sex: input.sex,
@@ -420,7 +466,8 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
             parentB: input.parentBId,
             grandparents: [a.color, b.color].filter((c) => !!c),
           });
-          yield* sql`UPDATE dragodinde SET status = 'sterile', fertile = 0 WHERE id IN (${input.parentAId}, ${input.parentBId})`;
+          yield* sql`UPDATE dragodinde SET status = 'sterile', fertile = 0, enclos_id = NULL
+                     WHERE id IN (${input.parentAId}, ${input.parentBId})`;
           return Option.some(baby);
         }),
       );
@@ -438,36 +485,32 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
           const b = rows.find((p) => p.id === input.bId);
           if (!a || !b) return Option.none<Dragodinde>();
           if (!a.color || a.color !== b.color) return Option.none<Dragodinde>();
-          const enclosId = input.enclosId ?? a.enclos_id;
-          const exists = yield* sql<{ id: number }>`SELECT id FROM enclos WHERE id = ${enclosId}`;
-          if (!exists[0]) return Option.none<Dragodinde>();
+          if ((yield* countStable) >= MAX_STABLE) return Option.none<Dragodinde>();
           yield* sql`DELETE FROM dragodinde WHERE id IN (${input.aId}, ${input.bId})`;
-          const clone = yield* insertDrago(enclosId, {
+          const clone = yield* insertDrago({
             name: input.name ?? a.color,
             color: a.color,
             sex: input.sex,
-            status: "fertile", // gauges reset to 0 — not féconde until raised
+            status: "fertile", // gauges reset to 0 — not féconde until raised; born into the stable
           });
           return Option.some(clone);
         }),
       );
 
-    /** Bulk-insert mounts into one enclos (up to its cap). Returns the created list and how
-     * many were skipped because the enclos was full. */
-    const importMounts = (enclosId: number, mounts: ReadonlyArray<ImportRow>) =>
+    /** Bulk-insert mounts into the stable (up to its cap). Returns the created list and how
+     * many were skipped because the stable was full. */
+    const importMounts = (mounts: ReadonlyArray<ImportRow>) =>
       sql.withTransaction(
         Effect.gen(function* () {
-          const exists = yield* sql<{ id: number }>`SELECT id FROM enclos WHERE id = ${enclosId}`;
-          if (!exists[0]) return { created: [] as Dragodinde[], skipped: mounts.length };
-          let n = yield* countDragos(enclosId);
+          let n = yield* countStable;
           const created: Dragodinde[] = [];
           let skipped = 0;
           for (const r of mounts) {
-            if (n >= MAX_DRAGODINDES) {
+            if (n >= MAX_STABLE) {
               skipped++;
               continue;
             }
-            const d = yield* insertDrago(enclosId, {
+            const d = yield* insertDrago({
               name: r.name ?? r.color,
               color: r.color,
               sex: r.sex,
@@ -482,6 +525,25 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
         }),
       );
 
+    /** Move a mount to an enclos (validated against its 10-cap) or back to the stable (enclosId
+     * null). Returns None if the mount/enclos is missing or the target enclos is full. */
+    const moveDrago = (id: number, enclosId: number | null) =>
+      sql.withTransaction(
+        Effect.gen(function* () {
+          const rows = yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE id = ${id}`;
+          if (!rows[0]) return Option.none<Dragodinde>();
+          if (enclosId !== null) {
+            const exists = yield* sql<{ id: number }>`SELECT id FROM enclos WHERE id = ${enclosId}`;
+            if (!exists[0]) return Option.none<Dragodinde>();
+            if (rows[0].enclos_id !== enclosId && (yield* countDragos(enclosId)) >= MAX_DRAGODINDES)
+              return Option.none<Dragodinde>();
+          }
+          yield* sql`UPDATE dragodinde SET enclos_id = ${enclosId} WHERE id = ${id}`;
+          const after = yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE id = ${id}`;
+          return Option.some(dragoFromRow(after[0]));
+        }),
+      );
+
     const removeDrago = (id: number) =>
       Effect.gen(function* () {
         const rows = yield* sql<{ id: number }>`SELECT id FROM dragodinde WHERE id = ${id}`;
@@ -492,12 +554,13 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
 
     const patchDrago = (id: number, body: DragoPatch) =>
       Effect.gen(function* () {
-        const rows = yield* sql<DragoRow & { focus: string }>`
+        const rows = yield* sql<DragoRow & { focus: string | null }>`
           SELECT d.*, e.focus AS focus FROM dragodinde d
-          JOIN enclos e ON e.id = d.enclos_id WHERE d.id = ${id}
+          LEFT JOIN enclos e ON e.id = d.enclos_id WHERE d.id = ${id}
         `;
         if (!rows[0]) return Option.none<Dragodinde>();
-        const focus = sanitizeFocus(JSON.parse(rows[0].focus) as ReadonlyArray<string>);
+        // Stable mounts (no enclos) have no focus — done-state is vacuously false there.
+        const focus = sanitizeFocus(JSON.parse(rows[0].focus ?? "[]") as ReadonlyArray<string>);
         const current = dragoFromRow(rows[0]);
         const stats = { ...current.stats };
         if (body.stats) {
@@ -533,6 +596,61 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
         return Option.some(next);
       });
 
+    /** Move many mounts to an enclos (filling to its 10-cap in the given order) or to the stable
+     * (enclosId null). Returns which ids actually moved + how many were skipped (enclos full). */
+    const moveMany = (ids: ReadonlyArray<number>, enclosId: number | null) =>
+      sql.withTransaction(
+        Effect.gen(function* () {
+          const movedIds: number[] = [];
+          let skipped = 0;
+          if (enclosId === null) {
+            for (const id of ids) {
+              const cur = yield* sql<{ id: number }>`SELECT id FROM dragodinde WHERE id = ${id}`;
+              if (!cur[0]) continue;
+              yield* sql`UPDATE dragodinde SET enclos_id = NULL WHERE id = ${id}`;
+              movedIds.push(id);
+            }
+            return { movedIds, skipped };
+          }
+          const exists = yield* sql<{ id: number }>`SELECT id FROM enclos WHERE id = ${enclosId}`;
+          if (!exists[0]) return { movedIds, skipped: ids.length };
+          let count = yield* countDragos(enclosId);
+          for (const id of ids) {
+            const cur = yield* sql<{ enclos_id: number | null }>`SELECT enclos_id FROM dragodinde WHERE id = ${id}`;
+            if (!cur[0]) continue; // gone
+            if (cur[0].enclos_id === enclosId) continue; // already there — no-op
+            if (count >= MAX_DRAGODINDES) {
+              skipped++;
+              continue;
+            }
+            yield* sql`UPDATE dragodinde SET enclos_id = ${enclosId} WHERE id = ${id}`;
+            count++;
+            movedIds.push(id);
+          }
+          return { movedIds, skipped };
+        }),
+      );
+
+    /** Apply one patch (status / keeper / …) to many mounts; returns how many were updated. */
+    const patchMany = (ids: ReadonlyArray<number>, patch: DragoPatch) =>
+      sql.withTransaction(
+        Effect.gen(function* () {
+          let n = 0;
+          for (const id of ids) if (Option.isSome(yield* patchDrago(id, patch))) n++;
+          return n;
+        }),
+      );
+
+    /** Delete many mounts; returns how many were removed. */
+    const removeMany = (ids: ReadonlyArray<number>) =>
+      sql.withTransaction(
+        Effect.gen(function* () {
+          let n = 0;
+          for (const id of ids) if (yield* removeDrago(id)) n++;
+          return n;
+        }),
+      );
+
     /** Advance every enclos one tick; return the dragodindes that just completed. */
     const tickAll = sql.withTransaction(
       Effect.gen(function* () {
@@ -548,7 +666,10 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
             if (changed(e.dragodindes[i], after)) yield* writeDrago(after);
           }
           for (const d of result.completed) {
-            completed.push({ enclosName: e.name, focus: e.focus, dragodinde: d });
+            completed.push({ kind: "focus", enclosName: e.name, focus: e.focus, dragodinde: d });
+          }
+          for (const d of result.becameFeconde) {
+            completed.push({ kind: "feconde", enclosName: e.name, focus: e.focus, dragodinde: d });
           }
         }
         return completed;
@@ -566,6 +687,8 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
 
     return {
       all,
+      stable,
+      allMounts,
       createEnclos,
       removeEnclos,
       patchEnclos,
@@ -573,6 +696,10 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
       recordCross,
       recordClone,
       importMounts,
+      moveDrago,
+      moveMany,
+      patchMany,
+      removeMany,
       removeDrago,
       patchDrago,
       tickAll,

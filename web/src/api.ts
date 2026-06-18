@@ -8,6 +8,7 @@ import type {
   Enclos,
   EnclosPatch,
   ImportRow,
+  ReproStatus,
   SeedInput,
 } from "./types";
 
@@ -38,23 +39,47 @@ export const api = {
       body: JSON.stringify(body),
     }).then((r) => json<{ ok?: boolean; error?: string }>(r)),
 
-  addDragodinde: (enclosId: number, seed?: SeedInput) =>
-    fetch(`/api/enclos/${enclosId}/dragodinde`, {
+  addDragodinde: (seed?: SeedInput) =>
+    fetch(`/api/dragodinde`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(seed ?? {}),
     }).then((r) => json<Dragodinde | { error: string }>(r)),
+  moveDragodinde: (id: number, enclosId: number | null) =>
+    fetch(`/api/dragodinde/${id}/move`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enclosId }),
+    }).then((r) => json<Dragodinde | { error: string }>(r)),
+  bulkMove: (ids: number[], enclosId: number | null) =>
+    fetch("/api/dragodinde/bulk-move", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids, enclosId }),
+    }).then((r) => json<{ moved: number; movedIds: number[]; skipped: number }>(r)),
+  bulkPatch: (ids: number[], patch: { status?: ReproStatus; keeper?: boolean }) =>
+    fetch("/api/dragodinde/bulk-patch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids, patch }),
+    }).then((r) => json<{ patched: number }>(r)),
+  bulkDelete: (ids: number[]) =>
+    fetch("/api/dragodinde/bulk-delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    }).then((r) => json<{ removed: number }>(r)),
   breed: (input: CrossInput) =>
     fetch("/api/breed", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     }).then((r) => json<Dragodinde | { error: string }>(r)),
-  importMounts: (enclosId: number, mounts: ImportRow[]) =>
+  importMounts: (mounts: ImportRow[]) =>
     fetch("/api/import", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enclosId, mounts }),
+      body: JSON.stringify({ mounts }),
     }).then((r) => json<{ created: number; skipped: number; mounts: Dragodinde[] } | { error: string }>(r)),
   clone: (input: CloneInput) =>
     fetch("/api/clone", {

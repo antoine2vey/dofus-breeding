@@ -9,6 +9,14 @@ const TestRepo = Repo.Default.pipe(
 );
 const provide = <A, E>(self: Effect.Effect<A, E, Repo>) => self.pipe(Effect.provide(TestRepo));
 
+/** Seed a mount into the stable, then move it into the given enclos (the new two-step flow). */
+const addInEnclos = (enclosId: number) =>
+  Effect.gen(function* () {
+    const repo = yield* Repo;
+    const d = Option.getOrThrow(yield* repo.addDrago());
+    return Option.getOrThrow(yield* repo.moveDrago(d.id, enclosId));
+  });
+
 it.effect("seeds one enclos (default focus) with NO dragodinde", () =>
   provide(
     Effect.gen(function* () {
@@ -21,27 +29,44 @@ it.effect("seeds one enclos (default focus) with NO dragodinde", () =>
   ),
 );
 
-it.effect("adds dragodindes up to MAX then refuses", () =>
+it.effect("an enclos holds at most MAX mounts (the 11th move is refused)", () =>
   provide(
     Effect.gen(function* () {
       const repo = yield* Repo;
       const enclosId = (yield* repo.all)[0].id;
-      for (let i = 0; i < 10; i++) expect(Option.isSome(yield* repo.addDrago(enclosId))).toBe(true);
+      const ids: number[] = [];
+      for (let i = 0; i < 11; i++) ids.push(Option.getOrThrow(yield* repo.addDrago()).id);
+      for (let i = 0; i < 10; i++) expect(Option.isSome(yield* repo.moveDrago(ids[i], enclosId))).toBe(true);
       expect((yield* repo.all)[0].dragodindes.length).toBe(10);
-      expect(Option.isNone(yield* repo.addDrago(enclosId))).toBe(true);
+      expect(Option.isNone(yield* repo.moveDrago(ids[10], enclosId))).toBe(true); // enclos full
+      expect((yield* repo.stable).length).toBe(1); // the 11th stays in the stable
     }),
   ),
 );
 
-it.effect("can remove the last dragodinde (enclos may be empty)", () =>
+it.effect("new mounts land in the stable; can be removed", () =>
   provide(
     Effect.gen(function* () {
       const repo = yield* Repo;
-      const enclosId = (yield* repo.all)[0].id;
-      const d = yield* repo.addDrago(enclosId);
-      const id = Option.getOrThrow(d).id;
-      expect(yield* repo.removeDrago(id)).toBe(true);
-      expect((yield* repo.all)[0].dragodindes.length).toBe(0);
+      const d = Option.getOrThrow(yield* repo.addDrago());
+      expect((yield* repo.stable).length).toBe(1);
+      expect((yield* repo.all)[0].dragodindes.length).toBe(0); // not in any enclos
+      expect(yield* repo.removeDrago(d.id)).toBe(true);
+      expect((yield* repo.stable).length).toBe(0);
+    }),
+  ),
+);
+
+it.effect("removing an enclos returns its mounts to the stable (not deleted)", () =>
+  provide(
+    Effect.gen(function* () {
+      const repo = yield* Repo;
+      const first = (yield* repo.all)[0].id;
+      const e2 = Option.getOrThrow(yield* repo.createEnclos);
+      yield* addInEnclos(e2.id);
+      expect(yield* repo.removeEnclos(e2.id)).toBe(true);
+      expect((yield* repo.stable).length).toBe(1); // mount survived, back in the stable
+      expect((yield* repo.all).some((e) => e.id === first)).toBe(true);
     }),
   ),
 );
@@ -75,8 +100,8 @@ it.effect("enclos focus applies to every dragodinde for completion, once, groupe
     Effect.gen(function* () {
       const repo = yield* Repo;
       const e = (yield* repo.all)[0];
-      yield* repo.addDrago(e.id);
-      yield* repo.addDrago(e.id); // 2 dragodindes (enclos starts empty)
+      yield* addInEnclos(e.id);
+      yield* addInEnclos(e.id); // 2 dragodindes (enclos starts empty)
       const dragos = (yield* repo.all)[0].dragodindes;
 
       // focus amour with fuel; both dragodindes just below max -> they cross 20k on the tick
@@ -97,7 +122,7 @@ it.effect("changing enclos focus re-arms a dragodinde that no longer qualifies",
     Effect.gen(function* () {
       const repo = yield* Repo;
       const e = (yield* repo.all)[0];
-      const d = Option.getOrThrow(yield* repo.addDrago(e.id));
+      const d = yield* addInEnclos(e.id);
       yield* repo.patchEnclos(e.id, { focus: ["amour"], fuel: { amour: 95000 } });
       yield* repo.patchDrago(d.id, { stats: { amour: 19990 } });
       expect((yield* repo.tickAll).length).toBe(1); // crosses 20k on the tick -> completes
@@ -115,8 +140,8 @@ it.effect("serenity pings on entering the band, not when already inside", () =>
       const repo = yield* Repo;
       const e = (yield* repo.all)[0];
       // both present before focusing so the bar isn't auto-unchecked prematurely
-      const a = Option.getOrThrow(yield* repo.addDrago(e.id));
-      const b = Option.getOrThrow(yield* repo.addDrago(e.id));
+      const a = yield* addInEnclos(e.id);
+      const b = yield* addInEnclos(e.id);
       yield* repo.patchEnclos(e.id, { focus: ["serenityPlus"], fuel: { serenityPlus: 95000 } });
       yield* repo.patchDrago(a.id, { stats: { serenity: 0 } }); // inside band -> no ping
       yield* repo.patchDrago(b.id, { stats: { serenity: -230 } }); // outside -> will enter & ping
