@@ -318,7 +318,7 @@ const router1 = HttpRouter.empty.pipe(
           }),
         recordClone: async (p) =>
           Option.match(await Effect.runPromise(repo.recordClone(p)), {
-            onNone: () => ({ ok: false, error: "clonage impossible (deux stériles de même couleur requis)" }),
+            onNone: () => ({ ok: false, error: "clonage impossible (deux stériles de même génération requis)" }),
             onSome: (d) => ({ ok: true, cloneId: d.id }),
           }),
         addMounts: async (p) => {
@@ -448,13 +448,9 @@ export const router = router1.pipe(
     Effect.gen(function* () {
       const repo = yield* Repo;
       const body = (yield* readBody) as Partial<CloneInput>;
-      if (
-        typeof body.aId !== "number" ||
-        typeof body.bId !== "number" ||
-        (body.sex !== "M" && body.sex !== "F")
-      ) {
+      if (typeof body.survivorId !== "number" || typeof body.consumedId !== "number") {
         return HttpServerResponse.unsafeJson(
-          { error: "clone requires aId, bId, sex" },
+          { error: "clone requires survivorId, consumedId" },
           { status: 400 },
         );
       }
@@ -462,7 +458,7 @@ export const router = router1.pipe(
       return Option.match(clone, {
         onNone: () =>
           HttpServerResponse.unsafeJson(
-            { error: "Need two distinct steriles of the same colour" },
+            { error: "Need two distinct steriles of the same generation" },
             { status: 400 },
           ),
         onSome: (d) => HttpServerResponse.unsafeJson(d),

@@ -51,7 +51,7 @@ export function HerdTab({
   // Clonage form
   const [cloneAId, setCloneAId] = useState<number | "">("");
   const [cloneBId, setCloneBId] = useState<number | "">("");
-  const [cloneSex, setCloneSex] = useState<Sex>("F");
+  const [cloneSurvivorId, setCloneSurvivorId] = useState<number | "">("");
 
   // Import (paste in-game names) form
   const [importText, setImportText] = useState("");
@@ -201,14 +201,15 @@ export function HerdTab({
     );
   };
 
-  // Clonage: two same-colour steriles -> one fresh fertile of that colour.
-  const steriles = mounts.filter((m) => m.status === "sterile" && m.color);
+  // Clonage: two same-generation steriles go in, ONE survives (refreshed to fertile, keeps its
+  // sex/colour/lineage); the other is consumed. The user picks which one survives.
+  const steriles = mounts.filter((m) => m.status === "sterile" && m.color && !m.keeper);
   const cloneA = cloneAId !== "" ? byId.get(cloneAId) : undefined;
   const cloneB = cloneBId !== "" ? byId.get(cloneBId) : undefined;
-  // Colours that have at least two steriles (so a clone is possible).
-  const clonableColors = [...new Set(steriles.map((m) => m.color))].filter(
-    (c) => steriles.filter((m) => m.color === c).length >= 2,
-  );
+  // Generations with ≥2 steriles (so a clone is possible); surface only those candidates for A.
+  const sterileByGen = new Map<number, number>();
+  for (const m of steriles) sterileByGen.set(genOf(m.color), (sterileByGen.get(genOf(m.color)) ?? 0) + 1);
+  const clonableSteriles = steriles.filter((m) => (sterileByGen.get(genOf(m.color)) ?? 0) >= 2);
 
   return (
     <div className="pane planner">
@@ -380,40 +381,43 @@ export function HerdTab({
       )}
 
       {/* Clonage */}
-      <div className="policy-head" style={{ marginTop: 16 }}><span>♻ Clonage</span><span className="muted">2 stériles de même couleur → 1 féconde (jauges remises à 0)</span></div>
-      {clonableColors.length === 0 ? (
+      <div className="policy-head" style={{ marginTop: 16 }}><span>♻ Clonage</span><span className="muted">2 stériles de même génération → 1 survivante (redevient fertile, jauges à 0)</span></div>
+      {clonableSteriles.length === 0 ? (
         <div className="muted small">
-          Aucune paire clonable. Le clonage recycle <b>deux stériles de la même couleur</b> en une
-          nouvelle féconde de cette couleur — marque des montures stériles ci-dessous pour débloquer.
+          Aucune paire clonable. Le clonage prend <b>deux stériles de la même génération</b> ; une
+          seule survit (redevient fertile en gardant sexe/couleur/lignée), l'autre est détruite —
+          marque des montures stériles ci-dessous pour débloquer.
         </div>
       ) : (
         <div className="plan-controls">
           <label>Stérile A
-            <select value={cloneAId} onChange={(e) => { setCloneAId(Number(e.target.value)); setCloneBId(""); }}>
+            <select value={cloneAId} onChange={(e) => { setCloneAId(Number(e.target.value)); setCloneBId(""); setCloneSurvivorId(Number(e.target.value)); }}>
               <option value="">—</option>
-              {steriles.filter((m) => clonableColors.includes(m.color)).map((m) => (
-                <option key={m.id} value={m.id}>{labelOf(m)}</option>
+              {clonableSteriles.map((m) => (
+                <option key={m.id} value={m.id}>{labelOf(m)} · gen {genOf(m.color)}</option>
               ))}
             </select>
           </label>
-          <label>Stérile B (même couleur)
+          <label>Stérile B (même génération)
             <select value={cloneBId} onChange={(e) => setCloneBId(Number(e.target.value))} disabled={cloneAId === ""}>
               <option value="">—</option>
-              {steriles.filter((m) => m.id !== cloneAId && cloneA && m.color === cloneA.color).map((m) => (
-                <option key={m.id} value={m.id}>{labelOf(m)}</option>
+              {steriles.filter((m) => m.id !== cloneAId && cloneA && genOf(m.color) === genOf(cloneA.color)).map((m) => (
+                <option key={m.id} value={m.id}>{labelOf(m)} · gen {genOf(m.color)}</option>
               ))}
             </select>
           </label>
-          <label>Sexe obtenu
-            <select value={cloneSex} onChange={(e) => setCloneSex(e.target.value as Sex)}>
-              <option value="F">♀ femelle</option><option value="M">♂ mâle</option>
+          <label>Survivante
+            <select value={cloneSurvivorId} onChange={(e) => setCloneSurvivorId(Number(e.target.value))} disabled={!cloneA || !cloneB}>
+              {cloneA && <option value={cloneA.id}>{labelOf(cloneA)}</option>}
+              {cloneB && <option value={cloneB.id}>{labelOf(cloneB)}</option>}
             </select>
           </label>
-          <button disabled={busy || !cloneA || !cloneB}
-            onClick={() => cloneA && cloneB && run(api.clone({
-              aId: Number(cloneAId), bId: Number(cloneBId), sex: cloneSex,
-              name: buildName({ color: cloneA.color, sex: cloneSex, keeper: false }),
-            })).then(() => { setCloneAId(""); setCloneBId(""); })}>
+          <button disabled={busy || !cloneA || !cloneB || cloneSurvivorId === ""}
+            onClick={() => {
+              const survivorId = Number(cloneSurvivorId);
+              const consumedId = survivorId === Number(cloneAId) ? Number(cloneBId) : Number(cloneAId);
+              run(api.clone({ survivorId, consumedId })).then(() => { setCloneAId(""); setCloneBId(""); setCloneSurvivorId(""); });
+            }}>
             ♻ Cloner
           </button>
         </div>

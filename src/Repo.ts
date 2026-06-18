@@ -134,12 +134,11 @@ export interface CrossInput {
   readonly name?: string;
 }
 
-/** Record one clonage: two same-colour steriles consumed -> one fresh fertile (born to the stable). */
+/** Record one clonage: two same-generation steriles go in, ONE survives. The survivor (chosen by
+ *  the user) is refreshed to fertile keeping its own sex/colour/lineage; the other is consumed. */
 export interface CloneInput {
-  readonly aId: number;
-  readonly bId: number;
-  readonly sex: Sex; // the gender that actually came back
-  readonly name?: string;
+  readonly survivorId: number; // the mount that comes back (refreshed to fertile)
+  readonly consumedId: number; // the mount destroyed by the clonage
 }
 
 export interface CompletedItem {
@@ -343,6 +342,10 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
             ${opts.parentA ?? null}, ${opts.parentB ?? null}, ${gps[0] ?? null}, ${gps[1] ?? null}
           ) RETURNING *
         `;
+        // Registering a mount of a colour means you've obtained it in-game → its succès is
+        // unlocked. Auto-mark it (idempotent) so the planner stops counting it toward the goal.
+        if (opts.color && COLOR_BY_NAME.has(opts.color))
+          yield* sql`INSERT OR IGNORE INTO achievement (color) VALUES (${opts.color})`;
         return dragoFromRow(rows[0]);
       });
 
@@ -488,31 +491,35 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
         }),
       );
 
-    /** Record a clonage: consume two same-colour steriles, produce one fresh fertile of
-     * that colour (gauges reset, no lineage — matches the engine's clone model). */
+    /** Record a clonage: two same-generation steriles go in, ONE survives. The chosen survivor is
+     * refreshed to fertile (gauges reset to 0) keeping its own sex/colour/lineage; the other is
+     * consumed. No new mount is created — the survivor is the existing animal, just refreshed. */
     const recordClone = (input: CloneInput) =>
       sql.withTransaction(
         Effect.gen(function* () {
-          if (input.aId === input.bId) return Option.none<Dragodinde>();
+          if (input.survivorId === input.consumedId) return Option.none<Dragodinde>();
           const rows = yield* sql<DragoRow>`
-            SELECT * FROM dragodinde WHERE id IN (${input.aId}, ${input.bId})
+            SELECT * FROM dragodinde WHERE id IN (${input.survivorId}, ${input.consumedId})
           `;
-          const a = rows.find((p) => p.id === input.aId);
-          const b = rows.find((p) => p.id === input.bId);
-          if (!a || !b) return Option.none<Dragodinde>();
-          if (!a.color || a.color !== b.color) return Option.none<Dragodinde>();
-          // Clonage consumes (deletes) both inputs — they must be STÉRILE, and never keepers.
-          if (statusFromRow(a) !== "sterile" || statusFromRow(b) !== "sterile") return Option.none<Dragodinde>();
-          if (a.keeper === 1 || b.keeper === 1) return Option.none<Dragodinde>();
-          if ((yield* countStable) >= MAX_STABLE) return Option.none<Dragodinde>();
-          yield* sql`DELETE FROM dragodinde WHERE id IN (${input.aId}, ${input.bId})`;
-          const clone = yield* insertDrago({
-            name: input.name, // auto-named from the convention (clone has no grandparents)
-            color: a.color,
-            sex: input.sex,
-            status: "fertile", // gauges reset to 0 — not féconde until raised; born into the stable
-          });
-          return Option.some(clone);
+          const survivor = rows.find((p) => p.id === input.survivorId);
+          const consumed = rows.find((p) => p.id === input.consumedId);
+          if (!survivor || !consumed) return Option.none<Dragodinde>();
+          // Both must be STÉRILE, never keepers, and of the SAME generation (colours may differ).
+          if (statusFromRow(survivor) !== "sterile" || statusFromRow(consumed) !== "sterile") return Option.none<Dragodinde>();
+          if (survivor.keeper === 1 || consumed.keeper === 1) return Option.none<Dragodinde>();
+          const genOf = (c: string | null) => (c ? COLOR_BY_NAME.get(c)?.gen ?? 0 : 0);
+          const gen = genOf(survivor.color);
+          if (gen === 0 || gen !== genOf(consumed.color)) return Option.none<Dragodinde>();
+          // Consume the other; refresh the survivor in place (fertile again, gauges to 0).
+          yield* sql`DELETE FROM dragodinde WHERE id = ${input.consumedId}`;
+          yield* sql`
+            UPDATE dragodinde
+            SET status = 'fertile', fertile = 1, notified = 0,
+                stat_endurance = 0, stat_maturite = 0, stat_amour = 0, stat_serenity = 0
+            WHERE id = ${input.survivorId}
+          `;
+          const after = yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE id = ${input.survivorId}`;
+          return Option.some(dragoFromRow(after[0]));
         }),
       );
 

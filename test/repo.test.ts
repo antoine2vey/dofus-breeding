@@ -57,6 +57,19 @@ it.effect("new mounts land in the stable; can be removed", () =>
   ),
 );
 
+it.effect("registering a coloured mount auto-marks its succès (idempotent; '' ignored)", () =>
+  provide(
+    Effect.gen(function* () {
+      const repo = yield* Repo;
+      yield* repo.addDrago({ color: "Pourpre", sex: "F" });
+      expect(yield* repo.getAchievements).toContain("Pourpre");
+      yield* repo.addDrago({ color: "Pourpre", sex: "M" }); // same colour again
+      yield* repo.addDrago(); // uncoloured -> no achievement
+      expect(yield* repo.getAchievements).toEqual(["Pourpre"]); // idempotent, no junk
+    }),
+  ),
+);
+
 it.effect("removing an enclos returns its mounts to the stable (not deleted)", () =>
   provide(
     Effect.gen(function* () {
@@ -130,6 +143,72 @@ it.effect("changing enclos focus re-arms a dragodinde that no longer qualifies",
       yield* repo.patchEnclos(e.id, { focus: ["amour", "maturite"] });
       const after = (yield* repo.all)[0].dragodindes[0];
       expect(after.notified).toBe(false);
+    }),
+  ),
+);
+
+it.effect("clonage: the chosen survivor is refreshed to fertile (gauges reset), the other consumed", () =>
+  provide(
+    Effect.gen(function* () {
+      const repo = yield* Repo;
+      // Two same-generation steriles of DIFFERENT colours (Amande + Dorée are both gen 1).
+      const { created } = yield* repo.importMounts(
+        [
+          { color: "Amande", sex: "M", status: "sterile" },
+          { color: "Dorée", sex: "F", status: "sterile" },
+        ],
+        null,
+      );
+      const [survivor, consumed] = created;
+      // Dirty the survivor's gauges so we can prove the reset.
+      yield* repo.patchDrago(survivor.id, { stats: { amour: 12345, endurance: 6789 } });
+
+      const out = Option.getOrThrow(yield* repo.recordClone({ survivorId: survivor.id, consumedId: consumed.id }));
+      expect(out.id).toBe(survivor.id); // the survivor is the existing animal, not a new one
+      expect(out.status).toBe("fertile"); // refreshed
+      expect(out.color).toBe("Amande"); // keeps its own colour…
+      expect(out.sex).toBe("M"); // …and sex…
+      expect(out.stats).toEqual({ endurance: 0, maturite: 0, amour: 0, serenity: 0 }); // …gauges reset
+
+      const stable = yield* repo.stable;
+      expect(stable.length).toBe(1); // net -1: the consumed mount is gone
+      expect(stable.some((d) => d.id === consumed.id)).toBe(false);
+    }),
+  ),
+);
+
+it.effect("clonage refuses a different-generation pair (and leaves both intact)", () =>
+  provide(
+    Effect.gen(function* () {
+      const repo = yield* Repo;
+      const { created } = yield* repo.importMounts(
+        [
+          { color: "Amande", sex: "M", status: "sterile" }, // gen 1
+          { color: "Ebène", sex: "F", status: "sterile" }, // gen 3
+        ],
+        null,
+      );
+      const [a, b] = created;
+      expect(Option.isNone(yield* repo.recordClone({ survivorId: a.id, consumedId: b.id }))).toBe(true);
+      expect((yield* repo.stable).length).toBe(2); // both still there
+    }),
+  ),
+);
+
+it.effect("clonage refuses when a mount is not sterile", () =>
+  provide(
+    Effect.gen(function* () {
+      const repo = yield* Repo;
+      const { created } = yield* repo.importMounts(
+        [
+          { color: "Amande", sex: "M", status: "sterile" },
+          { color: "Dorée", sex: "F", status: "fertile" }, // not sterile
+        ],
+        null,
+      );
+      const [a, b] = created;
+      expect(Option.isNone(yield* repo.recordClone({ survivorId: a.id, consumedId: b.id }))).toBe(true);
+      expect((yield* repo.stable).length).toBe(2);
     }),
   ),
 );

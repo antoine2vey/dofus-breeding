@@ -106,8 +106,6 @@ export interface CrossInput {
 }
 
 export interface CloneInput {
-  aId: number;
-  bId: number;
-  sex: Sex;
-  name?: string;
+  survivorId: number; // the mount kept (refreshed to fertile, keeps its sex/colour/lineage)
+  consumedId: number; // the mount destroyed by the clonage
 }

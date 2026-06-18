@@ -33,15 +33,20 @@ function BreedRow({ a, busy, onApply }: { a: BreedAction; busy: boolean; onApply
   );
 }
 
-function CloneRow({ a, names, busy, onApply }: { a: CloneAction; names: [string, string]; busy: boolean; onApply: (sex: Sex) => void }) {
-  const [sex, setSex] = useState<Sex>("F");
+function CloneRow({ a, names, busy, onApply }: { a: CloneAction; names: [string, string]; busy: boolean; onApply: (survivorId: number) => void }) {
+  // Two same-gen steriles, one survives (refreshed to fertile, keeps its own attributes); the user
+  // picks which one stays — the other is consumed.
+  const [survivorId, setSurvivorId] = useState<number>(a.aId);
   return (
     <div className="step-row">
       <span className="sr-main">♻ <span className="muted small">{names[0]}, {names[1]}</span></span>
       <span className="sr-odds muted small">{a.reason}</span>
       <span className="sr-act">
-        <select value={sex} onChange={(e) => setSex(e.target.value as Sex)}><option value="F">♀</option><option value="M">♂</option></select>
-        <button className="mini" disabled={busy} onClick={() => onApply(sex)}>♻ cloner</button>
+        <select title="survivante" value={survivorId} onChange={(e) => setSurvivorId(Number(e.target.value))}>
+          <option value={a.aId}>{names[0]}</option>
+          <option value={a.bId}>{names[1]}</option>
+        </select>
+        <button className="mini" disabled={busy} onClick={() => onApply(survivorId)}>♻ cloner</button>
       </span>
     </div>
   );
@@ -116,7 +121,8 @@ export function AssistantTab({ enclos, stable, onChanged }: { enclos: Enclos[]; 
   const applyRaise = (a: RaiseAction) => act(api.bulkMove([...a.mountIds], a.enclosId));
   const applyBreed = (a: BreedAction, color: string, sex: Sex) =>
     act(api.breed({ parentAId: a.aId, parentBId: a.bId, color, sex }));
-  const applyClone = (a: CloneAction, sex: Sex) => act(api.clone({ aId: a.aId, bId: a.bId, sex }));
+  const applyClone = (a: CloneAction, survivorId: number) =>
+    act(api.clone({ survivorId, consumedId: survivorId === a.aId ? a.bId : a.aId }));
   const applyCapture = (need: CaptureNeed, count: number, sex: Sex) =>
     act(api.importMounts(Array.from({ length: count }, () => ({ color: need.color, sex, status: "fertile" as ReproStatus })), null));
 

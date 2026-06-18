@@ -200,7 +200,7 @@ export function recommend(input: RecommendInput): Recommendation {
         kind: "clone",
         color,
         ids: g.slice(0, 2).map((m) => m.id),
-        reason: `2 stériles → 1 féconde (mène à gen ${POTENTIAL[color] ?? genOf(color)})`,
+        reason: `2 stériles → 1 survivante fertile (mène à gen ${POTENTIAL[color] ?? genOf(color)})`,
       });
     }
   }

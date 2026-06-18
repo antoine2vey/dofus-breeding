@@ -31,7 +31,7 @@ export interface AiActions {
 		color: string;
 		sex: "M" | "F";
 	}): Promise<{ ok: boolean; babyId?: number; error?: string }>;
-	recordClone(p: { aId: number; bId: number; sex: "M" | "F" }): Promise<{ ok: boolean; cloneId?: number; error?: string }>;
+	recordClone(p: { survivorId: number; consumedId: number }): Promise<{ ok: boolean; cloneId?: number; error?: string }>;
 	addMounts(p: { color: string; sex: "M" | "F"; status: ReproStatus; count: number }): Promise<{ created: number }>;
 	addEnclos(): Promise<{ ok: boolean; id?: number }>;
 	removeEnclos(id: number): Promise<{ ok: boolean }>;
@@ -48,8 +48,8 @@ RÈGLES :
   reproduit en jeu. Donc agis sur ce que l'utilisateur te demande ou confirme.
 - Les déplacements (« moveMounts ») sont sûrs et réversibles : applique-les directement quand c'est
   utile (ex. mettre des montures fertiles en enclos pour les monter féconde).
-- Les actions destructrices (recordCross stérilise les parents, recordClone en consomme deux,
-  deleteMounts) : ne les exécute QUE si l'utilisateur le demande/confirme explicitement.
+- Les actions destructrices (recordCross stérilise les parents, recordClone détruit la monture
+  NON conservée, deleteMounts) : ne les exécute QUE si l'utilisateur le demande/confirme explicitement.
 - féconde = prête à reproduire (jauges à 20K) ; fertile = pas encore prête (à monter en enclos) ;
   stérile = a déjà reproduit (à cloner). Seules les féconde se croisent.
 - Enregistrer une capture (« addMounts ») exige le SEXE (M/F). Si l'utilisateur ne le précise pas
@@ -177,8 +177,8 @@ export class Ai extends Effect.Service<Ai>()("app/Ai", {
 					execute: async (p) => actions.recordCross(p),
 				}),
 				recordClone: tool({
-					description: "Enregistre un clonage : deux stériles de même couleur consommés → une féconde. À confirmer.",
-					inputSchema: z.object({ aId: num, bId: num, sex: z.enum(["M", "F"]) }),
+					description: "Enregistre un clonage : deux stériles de même GÉNÉRATION, un seul survit. « survivorId » est la monture conservée (redevient fertile, garde sexe/couleur/lignée) ; « consumedId » est détruite. Demande laquelle survit si l'utilisateur ne l'a pas précisé. À confirmer.",
+					inputSchema: z.object({ survivorId: num, consumedId: num }),
 					execute: async (p) => actions.recordClone(p),
 				}),
 				addMounts: tool({
