@@ -3,7 +3,8 @@
 // and what to recycle (clone same-colour steriles / extract dead-weight). Pure — reused by
 // the /api/recommend endpoint and exposed as a tool to the AI agent.
 
-import { COLORS, COLOR_BY_NAME, computePlan, type GenPolicy } from "./colors.js";
+import { COLORS, COLOR_BY_NAME } from "./colors.js";
+import { cheptelAccounting, type Cheptel } from "./cheptel.js";
 import { crossOdds } from "./odds.js";
 
 const BASES = ["Amande", "Dorée", "Rousse"] as const;
@@ -44,6 +45,10 @@ export interface RecommendInput {
    *  coverage) even if no mount is owned — but NOT breeding supply, so a done colour that's a
    *  parent of the target is still produced. */
   readonly achievements?: ReadonlyArray<string>;
+  /** Pre-built cheptel accounting (stock sets + plan). When omitted, recommend builds its own from
+   *  mounts + achievements; assistantPlan passes the one it already computed so the plan isn't
+   *  derived twice. */
+  readonly accounting?: Cheptel;
 }
 
 export interface BreedAction {
@@ -86,38 +91,24 @@ const label = (m: InvMount) => m.name || `${m.color || "?"} ${m.sex === "F" ? "�
 
 export function recommend(input: RecommendInput): Recommendation {
   const { mounts, targetGen, freeSlots, level, optimakina } = input;
-  const done = new Set((input.achievements ?? []).filter((c) => COLOR_BY_NAME.has(c)));
-  // "Obtained" for the GOAL = colours you own OR whose achievement is already unlocked.
-  const obtained = new Set([...mounts.map((m) => m.color).filter(Boolean), ...done]);
+  // The stock sets + plan come from one cheptel accounting (built here when called standalone, or
+  // reused from assistantPlan). `obtained` = own OR succès; `plan.demand` = what's still needed.
+  const { obtained, plan } =
+    input.accounting ??
+    cheptelAccounting({
+      mounts,
+      achievements: input.achievements,
+      targetGen,
+      level,
+      optima: optimakina,
+      clonage: input.clonage,
+    });
   const highestGen = Math.max(0, ...mounts.map((m) => genOf(m.color)));
 
   // Colours <= targetGen we don't yet own.
   const missingToTarget = COLORS.filter((c) => c.gen <= targetGen && !obtained.has(c.name)).map(
     (c) => c.name,
   );
-
-  // Deterministic plan = source of truth for how much of each colour is still needed.
-  // usableStock (non-sterile, non-keeper) covers parent-uses; ownedStock + unlocked achievements
-  // satisfy the "own >=1" sink (but not breeding supply).
-  const usableStock: Record<string, number> = {};
-  const ownedStock: Record<string, number> = {};
-  for (const m of mounts) {
-    if (!m.color) continue;
-    ownedStock[m.color] = (ownedStock[m.color] ?? 0) + 1;
-    if (m.status !== "sterile" && !m.keeper) usableStock[m.color] = (usableStock[m.color] ?? 0) + 1;
-  }
-  for (const c of done) ownedStock[c] = Math.max(1, ownedStock[c] ?? 0);
-  const policy: Record<number, GenPolicy> = {};
-  for (let g = 2; g <= 10; g++) policy[g] = { level, optima: optimakina };
-  const plan = computePlan({
-    maxGen: targetGen,
-    policy,
-    reproducteur: false,
-    inventory: usableStock,
-    ownedAny: ownedStock,
-    clonage: input.clonage,
-    gender: true,
-  });
 
   // Value of producing a colour: spine progress ONLY if the plan still needs it (so a "done" or
   // already-covered colour with zero demand scores ~0 and isn't bred), plus a coverage bonus for a

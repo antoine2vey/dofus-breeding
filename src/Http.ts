@@ -17,8 +17,9 @@ import {
 } from "./Repo.js";
 import { Discord } from "./Discord.js";
 import { Ai, type AiActions, type ChatMessage } from "./Ai.js";
-import { recommend, assistantPlan, buildName, resolveColor, type InvMount, type AssistMount, type AssistEnclos } from "@dd/core";
+import { recommend, assistantPlan, buildName, resolveColor, type AssistMount, type AssistEnclos } from "@dd/core";
 import {
+  type Dragodinde,
   BARS,
   FOCUSABLE,
   MAX_DRAGODINDES,
@@ -30,6 +31,20 @@ import {
   SERENITY_MIN,
   STAT_MAX,
 } from "./domain.js";
+
+/** The one projection from a stored Dragodinde to the planner's AssistMount. AssistMount is a
+ *  superset of the recommender's InvMount, so this single adapter feeds /api/recommend,
+ *  /api/assistant/plan, and the AI getState alike. */
+const toAssistMount = (d: Dragodinde): AssistMount => ({
+  id: d.id,
+  name: d.name,
+  color: d.color,
+  sex: d.sex,
+  status: d.status,
+  keeper: d.keeper,
+  enclosId: d.enclosId,
+  grandparents: [...d.grandparents],
+});
 
 // Built React app (see web/). Run `cd web && npm run build`.
 const WEB_DIR = fileURLToPath(new URL("../web/dist", import.meta.url));
@@ -204,15 +219,7 @@ const router1 = HttpRouter.empty.pipe(
       const enclos = yield* repo.all;
       const all = yield* repo.allMounts; // stable + enclos — the whole collection
       const emptySlots = enclos.reduce((s, e) => s + Math.max(0, MAX_DRAGODINDES - e.dragodindes.length), 0);
-      const mounts: InvMount[] = all.map((d) => ({
-        id: d.id,
-        name: d.name,
-        color: d.color,
-        sex: d.sex,
-        status: d.status,
-        keeper: d.keeper,
-        grandparents: [...d.grandparents],
-      }));
+      const mounts = all.map(toAssistMount);
       const result = recommend({
         mounts,
         targetGen: typeof body.targetGen === "number" ? body.targetGen : 10,
@@ -238,16 +245,7 @@ const router1 = HttpRouter.empty.pipe(
       };
       const enclos = yield* repo.all;
       const all = yield* repo.allMounts;
-      const mounts: AssistMount[] = all.map((d) => ({
-        id: d.id,
-        name: d.name,
-        color: d.color,
-        sex: d.sex,
-        status: d.status,
-        keeper: d.keeper,
-        enclosId: d.enclosId,
-        grandparents: [...d.grandparents],
-      }));
+      const mounts = all.map(toAssistMount);
       const assistEnclos: AssistEnclos[] = enclos.map((e) => ({
         id: e.id,
         name: e.name,
@@ -292,16 +290,7 @@ const router1 = HttpRouter.empty.pipe(
           const enclos = await Effect.runPromise(repo.all);
           const all = await Effect.runPromise(repo.allMounts);
           return {
-            mounts: all.map((d) => ({
-              id: d.id,
-              name: d.name,
-              color: d.color,
-              sex: d.sex,
-              status: d.status,
-              keeper: d.keeper,
-              enclosId: d.enclosId,
-              grandparents: [...d.grandparents],
-            })),
+            mounts: all.map(toAssistMount),
             enclos: enclos.map((e) => ({ id: e.id, name: e.name, focus: [...e.focus], count: e.dragodindes.length })),
           };
         },

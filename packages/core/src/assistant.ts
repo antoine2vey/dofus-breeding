@@ -8,22 +8,19 @@
 //
 // Pure. The deterministic source of truth for the Assistant; the AI orchestrates on top of it.
 
-import { COLORS, COLOR_BY_NAME, computePlan, type GenPolicy } from "./colors.js";
+import { COLORS, COLOR_BY_NAME } from "./colors.js";
+import { cheptelAccounting } from "./cheptel.js";
 import { recommend, type InvMount, type ReproStatus, type BreedAction } from "./recommend.js";
 
 const genOf = (color: string) => COLOR_BY_NAME.get(color)?.gen ?? 0;
 const ENCLOS_CAP = 10;
 
-/** A mount with its location, for the live-state-aware planner. */
-export interface AssistMount {
-  readonly id: number;
-  readonly name: string; // the in-game (convention) name — for human-readable labels
-  readonly color: string; // "" if unset
-  readonly sex: "M" | "F";
-  readonly status: ReproStatus;
-  readonly keeper: boolean;
+/** A mount with its location, for the live-state-aware planner. A superset of the recommender's
+ *  InvMount (adds enclosId, requires a name), so an AssistMount can be handed straight to
+ *  recommend() without re-projecting it. */
+export interface AssistMount extends InvMount {
+  readonly name: string; // required here (InvMount's is optional — the assistant always has it)
   readonly enclosId: number | null; // null = stable
-  readonly grandparents: ReadonlyArray<string>;
 }
 
 export interface AssistEnclos {
@@ -101,49 +98,19 @@ export interface AssistantPlan {
   readonly nextStep: NextStep;
 }
 
-/** Usable breeding stock per colour (non-sterile, non-keeper) — what reduces plan demand. */
-const usableStockByColor = (mounts: ReadonlyArray<AssistMount>): Record<string, number> => {
-  const m: Record<string, number> = {};
-  for (const d of mounts)
-    if (d.color && d.status !== "sterile" && !d.keeper) m[d.color] = (m[d.color] ?? 0) + 1;
-  return m;
-};
-
-const uniformPolicy = (level: number, optimakina: boolean): Record<number, GenPolicy> => {
-  const p: Record<number, GenPolicy> = {};
-  for (let g = 2; g <= 10; g++) p[g] = { level, optima: optimakina };
-  return p;
-};
-
 export function assistantPlan(input: AssistantInput): AssistantPlan {
   const { mounts, enclos, targetGen, level, optimakina, clonage } = input;
 
-  const usable = usableStockByColor(mounts);
-  const done = new Set((input.achievements ?? []).filter((c) => COLOR_BY_NAME.has(c)));
-  const ownedByColor: Record<string, number> = {};
-  for (const d of mounts) if (d.color) ownedByColor[d.color] = (ownedByColor[d.color] ?? 0) + 1;
-  // The sink ("own >=1") is satisfied by an owned copy OR an unlocked achievement.
-  const sinkStock: Record<string, number> = { ...ownedByColor };
-  for (const c of done) sinkStock[c] = Math.max(1, sinkStock[c] ?? 0);
-  const obtainedOrDone = (color: string) => (ownedByColor[color] ?? 0) > 0 || done.has(color);
-
-  // ── Layer A: roadmap from the deterministic plan (cheptel-aware) ──
-  const plan = computePlan({
-    maxGen: targetGen,
-    policy: uniformPolicy(level, optimakina),
-    reproducteur: false,
-    inventory: usable, // usable stock covers parent-uses
-    ownedAny: sinkStock, // owned copy OR unlocked succès satisfies the "own >=1" sink
-    clonage,
-    gender: true,
-  });
+  // ── Layer A: roadmap from the shared cheptel accounting (stock sets + deterministic plan) ──
+  const acc = cheptelAccounting({ mounts, achievements: input.achievements, targetGen, level, optima: optimakina, clonage });
+  const { done, obtained, ownedStock, plan } = acc;
   const gens: RoadmapGenGroup[] = plan.groups.map((g) => ({
     gen: g.gen,
     rows: g.rows
       .map((r): RoadmapRow => ({
         color: r.name,
         gen: r.gen,
-        owned: ownedByColor[r.name] ?? 0,
+        owned: ownedStock[r.name] ?? 0,
         done: done.has(r.name),
         need: r.fresh,
         recipe: r.recipe,
@@ -152,7 +119,7 @@ export function assistantPlan(input: AssistantInput): AssistantPlan {
   })).filter((g) => g.rows.length > 0);
 
   const targetColors = COLORS.filter((c) => c.gen <= targetGen);
-  const obtainedColors = targetColors.filter((c) => obtainedOrDone(c.name)).length;
+  const obtainedColors = targetColors.filter((c) => obtained.has(c.name)).length;
   const reached = obtainedColors === targetColors.length;
 
   const roadmap: Roadmap = {
@@ -166,25 +133,17 @@ export function assistantPlan(input: AssistantInput): AssistantPlan {
     gens,
   };
 
-  // ── Layer B: next step. Breed / clone / capture come straight from `recommend`
-  //    (same deterministic source); `raise` is the new live-state piece. ──
-  const invMounts: InvMount[] = mounts.map((m) => ({
-    id: m.id,
-    name: m.name,
-    color: m.color,
-    sex: m.sex,
-    status: m.status,
-    keeper: m.keeper,
-    grandparents: [...m.grandparents],
-  }));
+  // ── Layer B: next step. Breed / clone / capture come straight from `recommend` (same
+  //    deterministic source — an AssistMount IS an InvMount); `raise` is the live-state piece. ──
   const rec = recommend({
-    mounts: invMounts,
+    mounts,
     targetGen,
     freeSlots: 999, // we want every productive féconde pair, not a per-round cap
     level,
     optimakina,
     clonage,
     achievements: input.achievements,
+    accounting: acc, // reuse the accounting already built — don't derive the plan a second time
   });
 
   // How many usable (féconde) parents each colour still wants = how many times the plan breeds it
