@@ -497,20 +497,38 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
         }),
       );
 
-    /** Bulk-insert mounts into the stable (up to its cap). Returns the created list and how
-     * many were skipped because the stable was full. */
-    const importMounts = (mounts: ReadonlyArray<ImportRow>) =>
+    /** Bulk-insert mounts. enclosId null → straight into the stable; a valid enclos id fills that
+     * enclos to its 10-cap then spills the overflow into the stable. Returns the created list,
+     * how many landed in the enclos (toEnclos), and how many were skipped (everything full). */
+    const importMounts = (mounts: ReadonlyArray<ImportRow>, enclosId: number | null) =>
       sql.withTransaction(
         Effect.gen(function* () {
-          let n = yield* countStable;
+          let target = enclosId;
+          if (target !== null) {
+            const exists = yield* sql<{ id: number }>`SELECT id FROM enclos WHERE id = ${target}`;
+            if (!exists[0]) target = null; // unknown enclos → fall back to the stable
+          }
+          let inEnclos = target !== null ? yield* countDragos(target) : 0;
+          let inStable = yield* countStable;
           const created: Dragodinde[] = [];
+          let toEnclos = 0;
           let skipped = 0;
           for (const r of mounts) {
-            if (n >= MAX_STABLE) {
+            // Prefer the target enclos until its 10-cap, then spill into the stable, then skip.
+            let place: number | null;
+            if (target !== null && inEnclos < MAX_DRAGODINDES) {
+              place = target;
+              inEnclos++;
+              toEnclos++;
+            } else if (inStable < MAX_STABLE) {
+              place = null;
+              inStable++;
+            } else {
               skipped++;
               continue;
             }
             const d = yield* insertDrago({
+              enclosId: place,
               name: r.name ?? r.color,
               color: r.color,
               sex: r.sex,
@@ -519,9 +537,8 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
               grandparents: r.grandparents,
             });
             created.push(d);
-            n++;
           }
-          return { created, skipped };
+          return { created, skipped, toEnclos };
         }),
       );
 

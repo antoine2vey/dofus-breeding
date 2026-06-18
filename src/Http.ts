@@ -340,7 +340,7 @@ export const router = HttpRouter.empty.pipe(
     "/api/import",
     Effect.gen(function* () {
       const repo = yield* Repo;
-      const body = (yield* readBody) as { mounts?: ImportRow[] };
+      const body = (yield* readBody) as { mounts?: ImportRow[]; enclosId?: number | null };
       if (!Array.isArray(body.mounts)) {
         return HttpServerResponse.unsafeJson({ error: "import requires mounts[]" }, { status: 400 });
       }
@@ -348,8 +348,9 @@ export const router = HttpRouter.empty.pipe(
         (m): m is ImportRow =>
           !!m && typeof m.color === "string" && (m.sex === "M" || m.sex === "F"),
       );
-      const { created, skipped } = yield* repo.importMounts(valid);
-      return HttpServerResponse.unsafeJson({ created: created.length, skipped, mounts: created });
+      const enclosId = typeof body.enclosId === "number" ? body.enclosId : null;
+      const { created, skipped, toEnclos } = yield* repo.importMounts(valid, enclosId);
+      return HttpServerResponse.unsafeJson({ created: created.length, skipped, toEnclos, mounts: created });
     }),
   ),
 

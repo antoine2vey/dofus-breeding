@@ -57,6 +57,7 @@ export function HerdTab({
   const [importText, setImportText] = useState("");
   const [parsed, setParsed] = useState<{ line: string; parts: NameParts | null; status: ReproStatus }[]>([]);
   const [importMsg, setImportMsg] = useState("");
+  const [importEnclos, setImportEnclos] = useState<number | "">(""); // "" = stable
 
   // Filters + bulk selection (the "Toutes les montures" table)
   const [fText, setFText] = useState("");
@@ -94,15 +95,11 @@ export function HerdTab({
   const patch = (id: number, body: Partial<Dragodinde>) => run(api.patchDragodinde(id, body));
   const move = (id: number, enclosId: number | null) => run(api.moveDragodinde(id, enclosId));
 
-  // Next index for a (colour, sex, keeper) bucket, for the naming convention.
-  const nextIndex = (color: string, sex: Sex, keeper: boolean) =>
-    mounts.filter((m) => m.color === color && m.sex === sex && m.keeper === keeper).length + 1;
   const suggestName = (m: Mount) =>
     m.color
       ? buildName({
           color: m.color,
           sex: m.sex,
-          index: nextIndex(m.color, m.sex, m.keeper),
           keeper: m.keeper,
           grandparents: m.grandparents,
         })
@@ -183,13 +180,21 @@ export function HerdTab({
       status: p.status,
       grandparents: p.parts!.grandparents ? [...p.parts!.grandparents] : [],
     }));
+    const enclosId = importEnclos === "" ? null : Number(importEnclos);
     run(
-      api.importMounts(rows).then((res) => {
+      api.importMounts(rows, enclosId).then((res) => {
         if ("error" in res) {
           setImportMsg("✗ " + res.error);
           return;
         }
-        setImportMsg(`✓ ${res.created} importée(s) dans l'étable` + (res.skipped ? ` · ${res.skipped} ignorée(s) (étable pleine)` : ""));
+        const toStable = res.created - res.toEnclos;
+        const enclosName = enclos.find((e) => e.id === enclosId)?.name;
+        const placed =
+          enclosId === null
+            ? `${res.created} importée(s) dans l'étable`
+            : `${res.toEnclos} dans « ${enclosName ?? "enclos"} »` +
+              (toStable > 0 ? `, ${toStable} dans l'étable (enclos plein)` : "");
+        setImportMsg(`✓ ${placed}` + (res.skipped ? ` · ${res.skipped} ignorée(s) (plein)` : ""));
         setImportText("");
         setParsed([]);
       }),
@@ -215,12 +220,26 @@ export function HerdTab({
       {/* Import from in-game names */}
       <div className="policy-head"><span>📥 Importer depuis le jeu</span><span className="muted">colle les noms de tes montures (1 par ligne)</span></div>
       <div className="muted small" style={{ marginBottom: 6 }}>
-        Renomme tes montures avec la convention <code>couleur-[K]sexe·n°-gp1-gp2</code> (ex.{" "}
-        <code>i-fa-e-ei</code>), puis colle la liste ici : couleur, sexe, keeper <b>et</b> les deux
-        grands-parents sont décodés du nom. Les montures arrivent dans l'<b>étable</b> ; l'état
-        (féconde / fertile / stérile) se règle par ligne ci-dessous.
+        Renomme tes montures avec la convention <code>couleur-[K]-sexe-gp1-gp2</code> (ex.{" "}
+        <code>i-f-e-ei</code>), puis colle la liste ici : couleur, sexe, keeper <b>et</b> les deux
+        grands-parents sont décodés du nom. Choisis la destination ci-dessous ; l'état
+        (féconde / fertile / stérile) se règle par ligne.
       </div>
       <div className="plan-controls">
+        <label>
+          Destination
+          <select
+            value={importEnclos}
+            onChange={(e) => setImportEnclos(e.target.value === "" ? "" : Number(e.target.value))}
+          >
+            <option value="">Étable</option>
+            {enclos.map((e) => (
+              <option key={e.id} value={e.id} disabled={e.dragodindes.length >= 10}>
+                {e.name} ({e.dragodindes.length}/10)
+              </option>
+            ))}
+          </select>
+        </label>
         <button className="ghost" disabled={!importText.trim()} onClick={analyze}>Analyser</button>
         {parsed.length > 0 && (
           <button disabled={busy || validParsed.length === 0} onClick={doImport}>
@@ -232,7 +251,7 @@ export function HerdTab({
         className="import-area"
         value={importText}
         onChange={(e) => setImportText(e.target.value)}
-        placeholder={"i-fa-e-ei\nei-Kma-a-d\nt-fa"}
+        placeholder={"i-f-e-ei\nei-K-m-a-d\nt-f"}
         rows={4}
       />
       {importMsg && <div className={importMsg.startsWith("✗") ? "decode-err" : "decode-ok"}>{importMsg}</div>}
@@ -288,7 +307,7 @@ export function HerdTab({
         <button disabled={busy}
           onClick={() => run(api.addDragodinde({
             color: seedColor, sex: seedSex, status: seedStatus,
-            name: buildName({ color: seedColor, sex: seedSex, index: nextIndex(seedColor, seedSex, false), keeper: false }),
+            name: buildName({ color: seedColor, sex: seedSex, keeper: false }),
           }))}>
           + Ajouter
         </button>
@@ -350,7 +369,7 @@ export function HerdTab({
               onClick={() => run(api.breed({
                 parentAId: Number(aId), parentBId: Number(bId), color: babyColor, sex: babySex,
                 name: buildName({
-                  color: babyColor, sex: babySex, index: nextIndex(babyColor, babySex, false), keeper: false,
+                  color: babyColor, sex: babySex, keeper: false,
                   grandparents: [a.color, b.color].filter(Boolean),
                 }),
               })).then(() => { setBabyColor(""); setAId(""); setBId(""); })}>
@@ -393,7 +412,7 @@ export function HerdTab({
           <button disabled={busy || !cloneA || !cloneB}
             onClick={() => cloneA && cloneB && run(api.clone({
               aId: Number(cloneAId), bId: Number(cloneBId), sex: cloneSex,
-              name: buildName({ color: cloneA.color, sex: cloneSex, index: nextIndex(cloneA.color, cloneSex, false), keeper: false }),
+              name: buildName({ color: cloneA.color, sex: cloneSex, keeper: false }),
             })).then(() => { setCloneAId(""); setCloneBId(""); })}>
             ♻ Cloner
           </button>

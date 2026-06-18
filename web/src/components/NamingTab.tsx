@@ -21,12 +21,11 @@ export function NamingTab() {
   const [color, setColor] = useState("Pourpre");
   const [sex, setSex] = useState<Sex>("F");
   const [keeper, setKeeper] = useState(false);
-  const [index, setIndex] = useState(1);
   const [copied, setCopied] = useState(false);
   // Decoder / validator
   const [probe, setProbe] = useState("");
 
-  const name = buildName({ color, sex, index, keeper });
+  const name = buildName({ color, sex, keeper });
   const nameValid = validateInGame(name);
 
   const probeVal = probe.length ? validateInGame(probe) : null;
@@ -35,13 +34,7 @@ export function NamingTab() {
   // Illustrative sorted run for the selected colour (shows the grouping order).
   const sample = useMemo(() => {
     const cc = colorCode(color);
-    return [
-      `${cc}-Kf` + "a",
-      `${cc}-Km` + "a",
-      `${cc}-f` + "a",
-      `${cc}-f` + "b",
-      `${cc}-m` + "a",
-    ];
+    return [`${cc}-K-f`, `${cc}-K-m`, `${cc}-f`, `${cc}-m`];
   }, [color]);
 
   const copy = () => {
@@ -94,15 +87,6 @@ export function NamingTab() {
             ))}
           </select>
         </label>
-        <label>
-          N° de copie
-          <input
-            type="number"
-            min={1}
-            value={index}
-            onChange={(e) => setIndex(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
-          />
-        </label>
         <label className="chk">
           <input type="checkbox" checked={keeper} onChange={(e) => setKeeper(e.target.checked)} />
           Keeper (exemplaire à garder)
@@ -118,7 +102,7 @@ export function NamingTab() {
           {copied ? "copié ✓" : "copier"}
         </button>
         <span className="muted small">
-          {color} (gen {genOf(color)}), {sex === "F" ? "femelle" : "mâle"}, copie {index}
+          {color} (gen {genOf(color)}), {sex === "F" ? "femelle" : "mâle"}
           {keeper ? ", keeper" : ""}
         </span>
       </div>
@@ -144,7 +128,7 @@ export function NamingTab() {
           <input
             type="text"
             value={probe}
-            placeholder="ex. um-Kfa"
+            placeholder="ex. um-K-f"
             onChange={(e) => setProbe(e.target.value)}
           />
         </label>
@@ -166,7 +150,7 @@ export function NamingTab() {
             <div className="decode-ok">
               <span className="tree-dot" style={{ background: GEN_COLOR[genOf(probeParsed.color)] }} />
               <b>{probeParsed.color}</b> (gen {genOf(probeParsed.color)}) ·{" "}
-              {probeParsed.sex === "F" ? "♀ femelle" : "♂ mâle"} · copie {probeParsed.index}
+              {probeParsed.sex === "F" ? "♀ femelle" : "♂ mâle"}
               {probeParsed.keeper && <span className="tree-tag">keeper</span>}
             </div>
           ) : (
@@ -181,7 +165,7 @@ export function NamingTab() {
       <div className="policy-head" style={{ marginTop: 18 }}>
         <span>Légende</span>
         <span className="muted">
-          &lt;code&gt;-[K]&lt;sexe&gt;&lt;n°&gt; · 1 lettre = monocolore, 2 = bicolore (ordre du nom)
+          &lt;code&gt;-[K-]&lt;sexe&gt;[-gp…] · 1 lettre = monocolore, 2 = bicolore (ordre du nom)
         </span>
       </div>
       <div className="letter-grid">
@@ -195,11 +179,13 @@ export function NamingTab() {
         ))}
       </div>
       <p className="plan-note muted">
-        Avant le tiret = couleur (1 lettre monocolore, 2 lettres bicolore dans l'ordre « X et Y »).
-        Après le tiret : un <b>K</b> majuscule si c'est un keeper (sinon rien), puis le sexe (
-        <b>f</b>/<b>m</b> minuscule), puis le numéro de copie en base-26 (a=1, b=2, …, z=26, aa=27).
-        La génération n'est pas écrite (déduite de la couleur). Attention : « m » est à la fois
-        Emeraude (couleur, avant le tiret) et mâle (sexe, après le tiret) — le tiret les distingue.
+        Avant le premier tiret = couleur (1 lettre monocolore, 2 lettres bicolore dans l'ordre
+        « X et Y »). Ensuite chaque champ est un segment : un <b>K</b> majuscule si c'est un keeper
+        (sinon rien), puis le sexe (<b>f</b>/<b>m</b> minuscule), puis jusqu'à 2 codes couleur des
+        grands-parents. Pas de numéro de copie : deux dragodindes de même couleur, sexe et
+        grands-parents portent le même nom. La génération n'est pas écrite (déduite de la couleur).
+        Attention : « m » est à la fois Emeraude (couleur, avant le tiret) et mâle (sexe) — la
+        position le distingue.
       </p>
 
       {/* Reference */}

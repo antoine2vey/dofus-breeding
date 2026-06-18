@@ -146,14 +146,12 @@ export class Ai extends Effect.Service<Ai>()("app/Ai", {
 					inputSchema: z.object({
 						color: z.string(),
 						sex: z.enum(["M", "F"]),
-						index: z.number().int().min(1).default(1),
 						keeper: z.boolean().default(false),
 					}),
 					execute: async (a) => ({
 						name: Core.buildName({
 							color: a.color,
 							sex: a.sex,
-							index: a.index,
 							keeper: a.keeper,
 						}),
 					}),
