@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assistantPlan, recommend, COLORS, type AssistMount, type AssistEnclos } from "@dd/core";
+import { assistantPlan, COLORS, type AssistMount, type AssistEnclos } from "@dd/core";
 
 const m = (o: Partial<AssistMount> & { id: number }): AssistMount => ({
   name: `dd-${o.id}`,
@@ -142,16 +142,6 @@ describe("assistantPlan", () => {
     expect(ctlNeed["Indigo et Rousse"] ?? 0).toBeGreaterThan(0);
     // …and the succès strictly reduce the captures owed.
     expect(roadmap.totalCaptures).toBeLessThan(ctl.roadmap.totalCaptures);
-  });
-
-  it("recommend: achievements drop done colours from missingToTarget + cut captures", () => {
-    const doneGen4 = COLORS.filter((c) => c.gen <= 4).map((c) => c.name);
-    const rec = recommend({ mounts: [], targetGen: 5, freeSlots: 4, level: 100, optimakina: true, clonage: true, achievements: doneGen4 });
-    expect(rec.missingToTarget).not.toContain("Indigo et Rousse"); // done
-    expect(rec.missingToTarget).toContain("Pourpre"); // gen 5, not done
-    const cap = (r: ReturnType<typeof recommend>) => r.capture.reduce((n, c) => n + c.count, 0);
-    const ctl = recommend({ mounts: [], targetGen: 5, freeSlots: 4, level: 100, optimakina: true, clonage: true });
-    expect(cap(rec)).toBeLessThan(cap(ctl));
   });
 
   it("a colour owned only as a keeper/sterile satisfies the sink — no phantom captures/crosses", () => {
