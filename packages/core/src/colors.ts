@@ -186,6 +186,7 @@ export interface GenGroup {
 export interface Plan {
   readonly groups: ReadonlyArray<GenGroup>;
   readonly demand: Readonly<Record<string, number>>; // fresh per colour (floor)
+  readonly consumed: Readonly<Record<string, number>>; // times each colour is used as a parent (floor)
   readonly baseCaptures: Readonly<Record<string, number>>;
   readonly totalCaptures: number;
   readonly totalCrosses: number;
@@ -209,6 +210,7 @@ interface SolveResult {
   readonly fresh: Record<string, number>; // bred/captured from scratch (incl. gender buffer)
   readonly cloned: Record<string, number>; // recovered via Clonage of a same-colour sterile pair
   readonly genderBuffer: Record<string, number>; // extra bred to guarantee both genders
+  readonly consumed: Record<string, number>; // times this colour is used as a parent across the plan
 }
 
 /**
@@ -281,7 +283,7 @@ function solve(
       consumed[c.parents[1]] += attempts;
     }
   }
-  return { fresh, cloned, genderBuffer };
+  return { fresh, cloned, genderBuffer, consumed };
 }
 
 /** Compute the cumulative breeding plan for "own >=1 of every colour <= maxGen". */
@@ -353,6 +355,7 @@ export function computePlan(opts: PlanOptions): Plan {
   return {
     groups,
     demand: req,
+    consumed: floor.consumed,
     baseCaptures,
     totalCaptures,
     totalCrosses,

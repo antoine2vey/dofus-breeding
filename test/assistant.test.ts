@@ -58,6 +58,19 @@ describe("assistantPlan", () => {
     expect(nextStep.raise).toHaveLength(0);
   });
 
+  it("raise fills spare enclos capacity in parallel — not just one pair per colour", () => {
+    // Plenty of fertile bases (4 each) + a big empty enclos. With a deep target the plan consumes
+    // many bases, so we ripen in parallel up to capacity instead of stopping at one pair (= 6).
+    const mounts: AssistMount[] = [];
+    let id = 1;
+    for (const color of ["Amande", "Dorée", "Rousse"])
+      for (let i = 0; i < 4; i++) mounts.push(m({ id: id++, color, sex: i % 2 ? "M" : "F", status: "fertile" }));
+    const { nextStep } = plan(mounts, [{ id: 1, name: "E", focus: [], count: 0 }], 4);
+    const raised = nextStep.raise.flatMap((r) => r.mountIds);
+    expect(raised.length).toBeGreaterThan(6); // old one-pair-per-colour cap would stop at 6
+    expect(raised.length).toBeLessThanOrEqual(10); // never exceeds free capacity
+  });
+
   it("breed: pairs féconde mounts; clone: pairs same-colour steriles", () => {
     const { nextStep } = plan(
       [
@@ -74,6 +87,25 @@ describe("assistantPlan", () => {
     expect(nextStep.clone).toEqual([
       expect.objectContaining({ aId: 3, bId: 4, color: "Rousse" }),
     ]);
+  });
+
+  it("breed: never a self/lateral cross — builds a colour from cheaper bases, not by burning a scarce equal", () => {
+    // A féconde Dorée et Rousse (scarce gen-2) plus the cheap bases to remake it.
+    const { nextStep } = plan(
+      [
+        m({ id: 1, color: "Dorée", sex: "M", status: "feconde" }),
+        m({ id: 2, color: "Rousse", sex: "F", status: "feconde" }),
+        m({ id: 3, color: "Dorée et Rousse", sex: "F", status: "feconde" }),
+      ],
+      baseEnclos,
+    );
+    // The only cross is Dorée × Rousse → Dorée et Rousse (a step UP from free bases).
+    expect(nextStep.breed).toHaveLength(1);
+    expect([nextStep.breed[0].aId, nextStep.breed[0].bId].sort()).toEqual([1, 2]);
+    expect(nextStep.breed[0].intended).toBe("Dorée et Rousse");
+    // The scarce Dorée et Rousse (#3) is NEVER consumed to remake a Dorée et Rousse (self) or a
+    // lateral gen-2 (e.g. Dorée × Dorée et Rousse, Amande-less so no step up).
+    for (const b of nextStep.breed) expect([b.aId, b.bId]).not.toContain(3);
   });
 
   it("done when every colour up to the target is owned", () => {

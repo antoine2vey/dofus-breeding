@@ -187,38 +187,63 @@ export function assistantPlan(input: AssistantInput): AssistantPlan {
     achievements: input.achievements,
   });
 
-  // Colours that are consumed as a parent somewhere in the plan (worth ripening to féconde).
-  const usedAsParent = new Set<string>();
-  for (const c of COLORS) if (c.gen <= targetGen && c.parents) c.parents.forEach((p) => usedAsParent.add(p));
+  // How many usable (féconde) parents each colour still wants = how many times the plan breeds it
+  // away (computePlan.consumed). With fertility = 1 every cross sterilises its parents, so a big
+  // backlog (e.g. 170 crosses to gen 10) needs many parents ripening in PARALLEL — not one pair at
+  // a time. We therefore fill all the spare enclos capacity, not just a single breedable pair.
+  const want = (c: string) => Math.round(plan.consumed[c] ?? 0);
 
-  // "Ripening" = will be a usable parent soon: féconde anywhere + fertile ALREADY in an enclos.
-  // Tracked per (colour, sex) so we raise toward a breedable PAIR (1♂+1♀), never N of one gender,
-  // and never re-raise a colour already being ripened in an enclos.
+  // "Ripening / on hand" = féconde anywhere + fertile ALREADY in an enclos (usable parent soon).
   const ripening: Record<string, { M: number; F: number }> = {};
   const bumpRipe = (c: string, s: "M" | "F") => ((ripening[c] ??= { M: 0, F: 0 })[s]++);
   for (const d of mounts)
     if (d.color && (d.status === "feconde" || (d.status === "fertile" && d.enclosId !== null))) bumpRipe(d.color, d.sex);
 
-  // Raise candidates: STABLE, fertile, non-keeper, a colour the plan breeds with. Bottom-up.
-  const raiseCandidates = mounts
-    .filter((m) => m.enclosId === null && m.status === "fertile" && !m.keeper && m.color && usedAsParent.has(m.color))
-    .sort((a, b) => genOf(a.color) - genOf(b.color));
+  // Raise candidates: STABLE, fertile, non-keeper, of a colour the plan still consumes as a parent.
+  // Grouped by colour so we can fill capacity round-robin (a spread of colours), bottom-up.
+  const byColor = new Map<string, AssistMount[]>();
+  for (const m of mounts)
+    if (m.enclosId === null && m.status === "fertile" && !m.keeper && m.color && want(m.color) > 0)
+      (byColor.get(m.color) ?? byColor.set(m.color, []).get(m.color)!).push(m);
+  const colorsByGen = [...byColor.keys()].sort((a, b) => genOf(a) - genOf(b));
 
-  // Assign to free enclos slots, but only one of each (colour, sex) — enough for a breedable pair.
   const freeByEnclos = enclos
     .map((e) => ({ id: e.id, name: e.name, free: Math.max(0, ENCLOS_CAP - e.count), ids: [] as number[], colors: [] as string[] }))
     .filter((e) => e.free > 0);
+  let totalFree = freeByEnclos.reduce((n, e) => n + e.free, 0);
+
+  // Round-robin passes: each pass gives every still-short colour one more mount (the under-
+  // represented sex first, so we ripen toward a breedable pair), bottom-up, until capacity or
+  // candidates run out. Pass 1 reproduces the old "a pair of each colour" coverage; later passes
+  // deepen the bottleneck colours to put spare slots to work instead of leaving them idle.
+  const picks: AssistMount[] = [];
+  for (let progress = true; progress && totalFree > 0; ) {
+    progress = false;
+    for (const color of colorsByGen) {
+      if (totalFree <= 0) break;
+      const list = byColor.get(color)!;
+      if (!list.length) continue;
+      const r = (ripening[color] ??= { M: 0, F: 0 });
+      if (r.M + r.F >= want(color)) continue; // enough of this colour already ripening/on hand
+      let idx = list.findIndex((mt) => (r.M <= r.F ? mt.sex === "M" : mt.sex === "F"));
+      if (idx < 0) idx = 0; // only one sex left — take it
+      const cand = list.splice(idx, 1)[0];
+      r[cand.sex]++;
+      picks.push(cand);
+      totalFree--;
+      progress = true;
+    }
+  }
+
+  // Place the picks into free enclos slots in order (fill enclos 1, then 2, …).
   let ei = 0;
-  for (const cand of raiseCandidates) {
-    const r = (ripening[cand.color] ??= { M: 0, F: 0 });
-    if (r[cand.sex] >= 1) continue; // this (colour, sex) is already covered/ripening
+  for (const cand of picks) {
     while (ei < freeByEnclos.length && freeByEnclos[ei].free <= 0) ei++;
-    if (ei >= freeByEnclos.length) break; // no free slots left
+    if (ei >= freeByEnclos.length) break;
     const slot = freeByEnclos[ei];
     slot.free--;
     slot.ids.push(cand.id);
     slot.colors.push(cand.color);
-    r[cand.sex]++;
   }
   const raise: RaiseAction[] = freeByEnclos
     .filter((e) => e.ids.length > 0)

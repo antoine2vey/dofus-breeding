@@ -130,6 +130,11 @@ export function recommend(input: RecommendInput): Recommendation {
     return v;
   };
 
+  // The outcome a cross is really FOR: the one contributing the most to its score (prob × value),
+  // not necessarily the most probable. Reused for the self-cross filter and the rationale/label.
+  const driverOf = (outcomes: ReturnType<typeof crossOdds>["outcomes"]) =>
+    outcomes.filter((o) => o.prob > 0.02).sort((a, b) => b.prob * value(b.race) - a.prob * value(a.race))[0];
+
   // ── Breed: only FÉCONDE mounts can pair now. Score every opposite-sex pair, greedily
   //    pick non-overlapping best. (Merely-fertile mounts are future capacity, not pairable.) ──
   const feconde = mounts.filter((m) => m.status === "feconde" && m.color && !m.keeper);
@@ -146,8 +151,23 @@ export function recommend(input: RecommendInput): Recommendation {
         optimakina,
       );
       let score = 0;
-      for (const o of r.outcomes) score += o.prob * value(o.race);
-      if (score > 0.01) scored.push({ m, f, score, r });
+      let maxOutVal = 0; // value of the best (most valuable) meaningfully-probable outcome
+      for (const o of r.outcomes) {
+        const v = value(o.race);
+        score += o.prob * v;
+        if (o.prob > 0.02 && v > maxOutVal) maxOutVal = v;
+      }
+      if (score <= 0.01) continue;
+      // A cross must step UP: produce — at meaningful odds — a colour strictly more valuable than
+      // its priciest parent. With fertility = 1 both parents are sterilised by the cross, so a pair
+      // whose best outcome is no better than a parent it consumes only destroys net supply: a
+      // self-cross (Dorée et Rousse × Dorée → Dorée et Rousse) or a lateral (Amande × Dorée et
+      // Rousse → Amande et Rousse, burning a scarce gen-2 to make another gen-2). Every real recipe
+      // yields a child of strictly higher generation — hence higher value — than BOTH parents, so
+      // this never drops legitimate progress; it just stops the planner cannibalising a scarce
+      // colour to remake an equal/cheaper one (the cheap recipe, e.g. Dorée × Rousse, is preferred).
+      if (maxOutVal <= Math.max(value(m.color), value(f.color))) continue;
+      scored.push({ m, f, score, r });
     }
   }
   scored.sort((a, b) => b.score - a.score);
@@ -169,7 +189,7 @@ export function recommend(input: RecommendInput): Recommendation {
       .filter((o) => o.prob > 0.02)
       .slice(0, 4)
       .map((o) => ({ race: o.race, prob: o.prob, gen: o.gen }));
-    const driver = [...top].sort((a, b) => b.prob * value(b.race) - a.prob * value(a.race))[0];
+    const driver = driverOf(s.r.outcomes);
     const isNew = driver && !obtained.has(driver.race);
     breed.push({
       aId: s.m.id,
