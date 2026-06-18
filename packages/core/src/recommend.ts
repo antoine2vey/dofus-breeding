@@ -146,9 +146,11 @@ export function recommend(input: RecommendInput): Recommendation {
   // ── Capture: only Amande/Dorée/Rousse are wild-capturable. How many of each depends on the
   //    target generation and what usable stock you already hold — ask the deterministic planner. ──
   const usableStock: Record<string, number> = {};
+  const ownedStock: Record<string, number> = {};
   for (const m of mounts) {
-    if (m.color && m.status !== "sterile" && !m.keeper)
-      usableStock[m.color] = (usableStock[m.color] ?? 0) + 1;
+    if (!m.color) continue;
+    ownedStock[m.color] = (ownedStock[m.color] ?? 0) + 1; // any state — satisfies the "own >=1" sink
+    if (m.status !== "sterile" && !m.keeper) usableStock[m.color] = (usableStock[m.color] ?? 0) + 1;
   }
   const policy: Record<number, GenPolicy> = {};
   for (let g = 2; g <= 10; g++) policy[g] = { level, optima: optimakina };
@@ -157,6 +159,7 @@ export function recommend(input: RecommendInput): Recommendation {
     policy,
     reproducteur: false,
     inventory: usableStock,
+    ownedAny: ownedStock,
     clonage: input.clonage,
     gender: true,
   });

@@ -456,6 +456,10 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
           const a = parents.find((p) => p.id === input.parentAId);
           const b = parents.find((p) => p.id === input.parentBId);
           if (!a || !b) return Option.none<Dragodinde>();
+          // Only FÉCONDE mounts can breed; refuse anything else so a bad call can't sterilise a
+          // fertile/sterile mount (or a baby). Keepers are trophies — never breed them.
+          if (statusFromRow(a) !== "feconde" || statusFromRow(b) !== "feconde") return Option.none<Dragodinde>();
+          if (a.keeper === 1 || b.keeper === 1) return Option.none<Dragodinde>();
           if ((yield* countStable) >= MAX_STABLE) return Option.none<Dragodinde>();
           const baby = yield* insertDrago({
             name: input.name ?? input.color,
@@ -485,6 +489,9 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
           const b = rows.find((p) => p.id === input.bId);
           if (!a || !b) return Option.none<Dragodinde>();
           if (!a.color || a.color !== b.color) return Option.none<Dragodinde>();
+          // Clonage consumes (deletes) both inputs — they must be STÉRILE, and never keepers.
+          if (statusFromRow(a) !== "sterile" || statusFromRow(b) !== "sterile") return Option.none<Dragodinde>();
+          if (a.keeper === 1 || b.keeper === 1) return Option.none<Dragodinde>();
           if ((yield* countStable) >= MAX_STABLE) return Option.none<Dragodinde>();
           yield* sql`DELETE FROM dragodinde WHERE id IN (${input.aId}, ${input.bId})`;
           const clone = yield* insertDrago({

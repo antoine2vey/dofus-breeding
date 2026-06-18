@@ -16,7 +16,7 @@ import {
   type SeedInput,
 } from "./Repo.js";
 import { Discord } from "./Discord.js";
-import { Ai, type ChatMessage } from "./Ai.js";
+import { Ai, type AiActions, type ChatMessage } from "./Ai.js";
 import { recommend, assistantPlan, type InvMount, type AssistMount, type AssistEnclos } from "@dd/core";
 import {
   BARS,
@@ -278,26 +278,61 @@ const router1 = HttpRouter.empty.pipe(
         level?: number;
         optimakina?: boolean;
         clonage?: boolean;
-        freeSlots?: number;
       };
-      const enclos = yield* repo.all;
-      const all = yield* repo.allMounts;
-      const emptySlots = enclos.reduce((s, e) => s + Math.max(0, MAX_DRAGODINDES - e.dragodindes.length), 0);
-      const inventory: InvMount[] = all.map((d) => ({
-        id: d.id,
-        color: d.color,
-        sex: d.sex,
-        status: d.status,
-        keeper: d.keeper,
-        grandparents: [...d.grandparents],
-      }));
-      const it = ai.reply(body.messages ?? [], inventory, {
+      // Bridge the AI's plain-async tools to the (Effect) repo. Repo methods close over the SQL
+      // client, so they're R=never and run directly via Effect.runPromise.
+      const actions: AiActions = {
+        getState: async () => {
+          const enclos = await Effect.runPromise(repo.all);
+          const all = await Effect.runPromise(repo.allMounts);
+          return {
+            mounts: all.map((d) => ({
+              id: d.id,
+              color: d.color,
+              sex: d.sex,
+              status: d.status,
+              keeper: d.keeper,
+              enclosId: d.enclosId,
+              grandparents: [...d.grandparents],
+            })),
+            enclos: enclos.map((e) => ({ id: e.id, name: e.name, focus: [...e.focus], count: e.dragodindes.length })),
+          };
+        },
+        moveMounts: async (mids, enclosId) => {
+          const r = await Effect.runPromise(repo.moveMany(mids, enclosId));
+          return { moved: r.movedIds.length, skipped: r.skipped };
+        },
+        setStatus: async (mids, st) => ({ updated: await Effect.runPromise(repo.patchMany(mids, { status: st })) }),
+        setKeeper: async (mids, keeper) => ({ updated: await Effect.runPromise(repo.patchMany(mids, { keeper })) }),
+        recordCross: async (p) =>
+          Option.match(await Effect.runPromise(repo.recordCross(p)), {
+            onNone: () => ({ ok: false, error: "parents introuvables ou étable pleine" }),
+            onSome: (d) => ({ ok: true, babyId: d.id }),
+          }),
+        recordClone: async (p) =>
+          Option.match(await Effect.runPromise(repo.recordClone(p)), {
+            onNone: () => ({ ok: false, error: "clonage impossible (deux stériles de même couleur requis)" }),
+            onSome: (d) => ({ ok: true, cloneId: d.id }),
+          }),
+        addMounts: async (p) => {
+          const rows = Array.from({ length: p.count }, () => ({ color: p.color, sex: p.sex, status: p.status }));
+          const r = await Effect.runPromise(repo.importMounts(rows, null));
+          return { created: r.created.length };
+        },
+        addEnclos: async () =>
+          Option.match(await Effect.runPromise(repo.createEnclos), {
+            onNone: () => ({ ok: false }),
+            onSome: (e) => ({ ok: true, id: e.id }),
+          }),
+        removeEnclos: async (id) => ({ ok: await Effect.runPromise(repo.removeEnclos(id)) }),
+        deleteMounts: async (mids) => ({ removed: await Effect.runPromise(repo.removeMany(mids)) }),
+      };
+      const it = ai.reply(body.messages ?? [], {
         targetGen: typeof body.targetGen === "number" ? body.targetGen : 10,
         level: typeof body.level === "number" ? body.level : 60,
         optimakina: body.optimakina === true,
         clonage: body.clonage !== false,
-        freeSlots: typeof body.freeSlots === "number" ? body.freeSlots : Math.max(1, emptySlots),
-      });
+      }, actions);
       const enc = new TextEncoder();
       const sse = Stream.fromAsyncIterable(it, (e) => new Error(String(e))).pipe(
         Stream.map((t) => enc.encode(`data: ${JSON.stringify({ text: t })}\n\n`)),

@@ -145,8 +145,11 @@ export interface PlanOptions {
   readonly policy: Readonly<Record<number, GenPolicy>>;
   /** Assume the female parent carries the Reproducteur capacity (+1 baby/cross). */
   readonly reproducteur: boolean;
-  /** Fertile dragodindes you already own, per colour — subtracted from demand. */
+  /** USABLE (non-sterile, non-keeper) stock per colour — covers parent-uses. */
   readonly inventory: Readonly<Record<string, number>>;
+  /** TOTAL owned per colour (any state, incl. keepers/steriles) — satisfies the "own >=1" sink.
+   *  Defaults to `inventory` when omitted (back-compat). */
+  readonly ownedAny?: Readonly<Record<string, number>>;
   /** Recycle pairs of same-colour sterile parents into one fresh fertile via Clonage. */
   readonly clonage: boolean;
   /** Model the gender constraint (each cross needs ♂+♀; bred babies are random gender). */
@@ -231,6 +234,7 @@ function solve(
   gender: boolean,
   pForGen: (gen: number) => number,
   inventory: Readonly<Record<string, number>>,
+  ownedAny: Readonly<Record<string, number>>,
 ): SolveResult {
   const consumed: Record<string, number> = {};
   const fresh: Record<string, number> = {};
@@ -241,7 +245,11 @@ function solve(
   for (const c of [...targets].sort((a, b) => b.gen - a.gen)) {
     const n = c.name;
     const sink = used.has(n) ? 0 : 1;
-    const owned = inventory[n] ?? 0;
+    // The SINK term ("own >=1 of this colour") is satisfied by ANY owned copy — including a
+    // keeper or a sterile (a colour you hold counts as obtained). Parent-uses (consumed) can
+    // only be covered by USABLE (non-sterile, non-keeper) stock. sink and consumed are mutually
+    // exclusive (a sink is never a parent), so picking the right inventory per role is exact.
+    const owned = sink > 0 ? (ownedAny[n] ?? 0) : (inventory[n] ?? 0);
     const need = Math.max(0, consumed[n] + sink - owned);
     // Clonage recycles a colour's own steriles (from its parent-uses) in pairs. You can't
     // clone until 2 steriles exist and the final leftover sterile is always stranded, so
@@ -280,9 +288,10 @@ export function computePlan(opts: PlanOptions): Plan {
   }
 
   // Floor: success = 100% everywhere. Expected: per-generation policy success.
-  const floor = solve(targets, used, babies, opts.clonage, opts.gender, () => 1, opts.inventory);
+  const ownedAny = opts.ownedAny ?? opts.inventory;
+  const floor = solve(targets, used, babies, opts.clonage, opts.gender, () => 1, opts.inventory, ownedAny);
   const exp = solve(
-    targets, used, babies, opts.clonage, opts.gender, (g) => genSuccess[g] ?? 1, opts.inventory,
+    targets, used, babies, opts.clonage, opts.gender, (g) => genSuccess[g] ?? 1, opts.inventory, ownedAny,
   );
 
   const req = floor.fresh;

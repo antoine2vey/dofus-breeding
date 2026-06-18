@@ -84,4 +84,16 @@ describe("assistantPlan", () => {
     expect(nextStep.done).toBe(true);
     expect(nextStep.summary).toContain("atteint");
   });
+
+  it("a colour owned only as a keeper/sterile satisfies the sink — no phantom captures/crosses", () => {
+    const colors = ["Amande", "Dorée", "Rousse", "Amande et Rousse", "Dorée et Rousse", "Amande et Dorée"];
+    // Held as KEEPERS (and even sterile) — usable stock is empty, but they ARE owned.
+    const mounts = colors.map((c, i) => m({ id: i + 1, color: c, status: "sterile", keeper: true }));
+    const { roadmap, nextStep } = plan(mounts, baseEnclos, 2);
+    expect(roadmap.reached).toBe(true);
+    expect(roadmap.totalCaptures).toBe(0); // was 6 before the sink/usable fix
+    expect(roadmap.totalCrosses).toBe(0); // was 3 before
+    expect(nextStep.capture).toHaveLength(0);
+    expect(nextStep.done).toBe(true);
+  });
 });

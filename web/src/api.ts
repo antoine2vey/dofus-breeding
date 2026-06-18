@@ -1,4 +1,4 @@
-import type { Recommendation } from "@dd/core";
+import type { Recommendation, AssistantPlan } from "@dd/core";
 import type {
   AppState,
   CloneInput,
@@ -106,6 +106,12 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }).then((r) => json<Recommendation>(r)),
+  assistantPlan: (body: { targetGen: number; level: number; optimakina: boolean; clonage: boolean }) =>
+    fetch("/api/assistant/plan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then((r) => json<AssistantPlan>(r)),
 
   setWebhook: (webhookUrl: string) =>
     fetch("/api/settings", {

@@ -401,6 +401,33 @@ nav.tabs { display: flex; gap: 4px; margin-left: 18px; flex: 1; }
 button.mini.danger { color: #e8607a; }
 .herd-table tr.row-selected td { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 
+/* Assistant v2 — context bar, next-step card, roadmap */
+.ctx-bar { display: flex; flex-wrap: wrap; gap: 14px; margin: 8px 0 10px; }
+.ctx-block { flex: 1; min-width: 220px; }
+.ctx-label { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.ctx-pills { display: flex; flex-wrap: wrap; gap: 5px; }
+.ctx-pills .pill { background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; padding: 2px 8px; font-size: 12px; color: var(--text); }
+.ctx-pills .pill.ok { border-color: #57f287; color: #57f287; }
+.ctx-pills .pill.bad { border-color: #e8607a; color: #e8607a; }
+.step-group { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; margin-bottom: 8px; }
+.step-title { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+.step-row { display: flex; align-items: center; gap: 10px; padding: 4px 0; border-top: 1px solid var(--line); }
+.step-row:first-of-type { border-top: none; }
+.sr-main { flex: 0 0 auto; font-size: 13px; min-width: 160px; }
+.sr-odds { flex: 1; font-size: 12px; }
+.sr-act { flex: 0 0 auto; display: flex; align-items: center; gap: 5px; }
+.sr-act select, .sr-act input { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; font-size: 12px; font-family: inherit; }
+.roadmap-gen { border-bottom: 1px solid var(--line); }
+.rg-head { width: 100%; display: flex; justify-content: space-between; align-items: center; background: none; border: none; color: var(--text); padding: 7px 2px; cursor: pointer; font-family: inherit; }
+.rg-head:hover { color: var(--accent); }
+.roadmap-table { width: 100%; border-collapse: collapse; margin-bottom: 6px; font-size: 13px; }
+.roadmap-table td { padding: 3px 8px; }
+.rm-recipe { width: 38%; }
+.rm-prog { width: 120px; }
+.rm-prog .hmeter { height: 7px; background: var(--panel2); border-radius: 4px; overflow: hidden; }
+.rm-prog .hfill { height: 100%; }
+.rm-count { text-align: right; width: 56px; font-variant-numeric: tabular-nums; }
+
 /* Assistant chat */
 .chat-log { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
 .chat-msg { display: flex; gap: 8px; font-size: 13px; line-height: 1.5; }

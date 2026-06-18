@@ -154,7 +154,7 @@ export default function App() {
         </div>
       ) : tab === "assistant" ? (
         <div className="split">
-          <AssistantTab />
+          <AssistantTab enclos={enclos} stable={stable} onChanged={refresh} />
         </div>
       ) : tab === "planner" ? (
         <div className="split">

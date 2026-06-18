@@ -13,7 +13,6 @@ import { recommend, type InvMount, type ReproStatus, type BreedAction } from "./
 
 const genOf = (color: string) => COLOR_BY_NAME.get(color)?.gen ?? 0;
 const ENCLOS_CAP = 10;
-const FECONDE_ENOUGH = 2; // already-féconde stock past which a colour isn't worth ripening more
 
 /** A mount with its location, for the live-state-aware planner. */
 export interface AssistMount {
@@ -117,16 +116,14 @@ export function assistantPlan(input: AssistantInput): AssistantPlan {
   const usable = usableStockByColor(mounts);
   const ownedByColor: Record<string, number> = {};
   for (const d of mounts) if (d.color) ownedByColor[d.color] = (ownedByColor[d.color] ?? 0) + 1;
-  const fecondeByColor: Record<string, number> = {};
-  for (const d of mounts)
-    if (d.color && d.status === "feconde") fecondeByColor[d.color] = (fecondeByColor[d.color] ?? 0) + 1;
 
   // ── Layer A: roadmap from the deterministic plan (cheptel-aware) ──
   const plan = computePlan({
     maxGen: targetGen,
     policy: uniformPolicy(level, optimakina),
     reproducteur: false,
-    inventory: usable,
+    inventory: usable, // usable stock covers parent-uses
+    ownedAny: ownedByColor, // any owned copy (incl. keeper/sterile) satisfies the "own >=1" sink
     clonage,
     gender: true,
   });
@@ -181,35 +178,34 @@ export function assistantPlan(input: AssistantInput): AssistantPlan {
   const usedAsParent = new Set<string>();
   for (const c of COLORS) if (c.gen <= targetGen && c.parents) c.parents.forEach((p) => usedAsParent.add(p));
 
-  // Raise candidates: STABLE, fertile (not féconde/sterile), non-keeper, a colour the plan breeds
-  // with, and we don't already hold enough féconde of it. Bottom-up (low gen) first, scarcest first.
-  const raiseCandidates = mounts
-    .filter(
-      (m) =>
-        m.enclosId === null &&
-        m.status === "fertile" &&
-        !m.keeper &&
-        m.color &&
-        usedAsParent.has(m.color) &&
-        (fecondeByColor[m.color] ?? 0) < FECONDE_ENOUGH,
-    )
-    .sort(
-      (a, b) =>
-        genOf(a.color) - genOf(b.color) || (fecondeByColor[a.color] ?? 0) - (fecondeByColor[b.color] ?? 0),
-    );
+  // "Ripening" = will be a usable parent soon: féconde anywhere + fertile ALREADY in an enclos.
+  // Tracked per (colour, sex) so we raise toward a breedable PAIR (1♂+1♀), never N of one gender,
+  // and never re-raise a colour already being ripened in an enclos.
+  const ripening: Record<string, { M: number; F: number }> = {};
+  const bumpRipe = (c: string, s: "M" | "F") => ((ripening[c] ??= { M: 0, F: 0 })[s]++);
+  for (const d of mounts)
+    if (d.color && (d.status === "feconde" || (d.status === "fertile" && d.enclosId !== null))) bumpRipe(d.color, d.sex);
 
-  // Assign candidates to free enclos slots, greedily filling each enclos.
+  // Raise candidates: STABLE, fertile, non-keeper, a colour the plan breeds with. Bottom-up.
+  const raiseCandidates = mounts
+    .filter((m) => m.enclosId === null && m.status === "fertile" && !m.keeper && m.color && usedAsParent.has(m.color))
+    .sort((a, b) => genOf(a.color) - genOf(b.color));
+
+  // Assign to free enclos slots, but only one of each (colour, sex) — enough for a breedable pair.
   const freeByEnclos = enclos
     .map((e) => ({ id: e.id, name: e.name, free: Math.max(0, ENCLOS_CAP - e.count), ids: [] as number[], colors: [] as string[] }))
     .filter((e) => e.free > 0);
   let ei = 0;
   for (const cand of raiseCandidates) {
+    const r = (ripening[cand.color] ??= { M: 0, F: 0 });
+    if (r[cand.sex] >= 1) continue; // this (colour, sex) is already covered/ripening
     while (ei < freeByEnclos.length && freeByEnclos[ei].free <= 0) ei++;
     if (ei >= freeByEnclos.length) break; // no free slots left
     const slot = freeByEnclos[ei];
     slot.free--;
     slot.ids.push(cand.id);
     slot.colors.push(cand.color);
+    r[cand.sex]++;
   }
   const raise: RaiseAction[] = freeByEnclos
     .filter((e) => e.ids.length > 0)
@@ -232,16 +228,17 @@ export function assistantPlan(input: AssistantInput): AssistantPlan {
   const totalCapture = rec.capture.reduce((n, c) => n + c.count, 0);
   if (totalCapture) summaryParts.push(`${totalCapture} à capturer`);
 
-  const nextStep: NextStep = {
-    raise,
-    breed: rec.breed,
-    clone,
-    capture: rec.capture,
-    done: reached,
-    summary: reached
-      ? `Objectif gen ${targetGen} atteint 🎉`
-      : summaryParts.join(" · ") || "Rien à faire ce tour — capture des bases pour amorcer.",
-  };
+  // Once the objective is met there is no work — don't recommend wasteful breed/clone/capture.
+  const nextStep: NextStep = reached
+    ? { raise: [], breed: [], clone: [], capture: [], done: true, summary: `Objectif gen ${targetGen} atteint 🎉` }
+    : {
+        raise,
+        breed: rec.breed,
+        clone,
+        capture: rec.capture,
+        done: false,
+        summary: summaryParts.join(" · ") || "Rien à faire ce tour — capture des bases pour amorcer.",
+      };
 
   return { roadmap, nextStep };
 }
