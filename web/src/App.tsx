@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import type { AppState, DragoPatch, EnclosPatch } from "./types";
 import { EnclosWorkspace } from "./components/EnclosWorkspace";
@@ -8,8 +8,9 @@ import { BreedingTree } from "./components/BreedingTree";
 import { NamingTab } from "./components/NamingTab";
 import { HerdTab } from "./components/HerdTab";
 import { AssistantTab } from "./components/AssistantTab";
+import { SuccesTab } from "./components/SuccesTab";
 
-type Tab = "tracker" | "herd" | "assistant" | "planner" | "odds" | "naming";
+type Tab = "tracker" | "herd" | "assistant" | "succes" | "planner" | "odds" | "naming";
 
 export default function App() {
   const [state, setState] = useState<AppState | null>(null);
@@ -17,9 +18,14 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("tracker");
 
+  // Monotonic guard: drop out-of-order /api/state responses so a slow poll can't clobber a fresh
+  // optimistic edit (e.g. a Succès toggle) with stale data.
+  const reqSeq = useRef(0);
   const refresh = useCallback(async () => {
+    const seq = ++reqSeq.current;
     try {
       const data = await api.getState();
+      if (seq !== reqSeq.current) return; // a newer refresh superseded this one
       setState(data);
       setActiveId((cur) =>
         cur != null && data.enclos.some((e) => e.id === cur) ? cur : (data.enclos[0]?.id ?? null),
@@ -79,7 +85,7 @@ export default function App() {
 
   if (!state) return <div className="loading">Loading…</div>;
 
-  const { enclos, stable, meta, settings } = state;
+  const { enclos, stable, achievements, meta, settings } = state;
   const allMounts = [...stable, ...enclos.flatMap((e) => e.dragodindes)];
 
   return (
@@ -104,6 +110,12 @@ export default function App() {
             onClick={() => setTab("assistant")}
           >
             Assistant
+          </button>
+          <button
+            className={"tab" + (tab === "succes" ? " active" : "")}
+            onClick={() => setTab("succes")}
+          >
+            Succès
           </button>
           <button
             className={"tab" + (tab === "planner" ? " active" : "")}
@@ -155,6 +167,10 @@ export default function App() {
       ) : tab === "assistant" ? (
         <div className="split">
           <AssistantTab enclos={enclos} stable={stable} onChanged={refresh} />
+        </div>
+      ) : tab === "succes" ? (
+        <div className="split">
+          <SuccesTab achievements={achievements} onChanged={refresh} />
         </div>
       ) : tab === "planner" ? (
         <div className="split">

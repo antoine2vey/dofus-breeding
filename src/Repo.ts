@@ -1,4 +1,5 @@
 import { SqlClient } from "@effect/sql";
+import { COLOR_BY_NAME } from "@dd/core";
 import { Effect, Option } from "effect";
 import {
   type Dragodinde,
@@ -274,6 +275,9 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
       )
     `;
     yield* sql`INSERT OR IGNORE INTO settings (id, webhook_url) VALUES (1, '')`;
+
+    // Succès: colours whose in-game achievement is already unlocked (a set, independent of cheptel).
+    yield* sql`CREATE TABLE IF NOT EXISTS achievement (color TEXT PRIMARY KEY NOT NULL)`;
 
     const writeEnclos = (e: Enclos) => sql`
       UPDATE enclos SET
@@ -707,6 +711,20 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
     const setWebhook = (url: string) =>
       sql`UPDATE settings SET webhook_url = ${url} WHERE id = 1`.pipe(Effect.asVoid);
 
+    const getAchievements = sql<{ color: string }>`SELECT color FROM achievement`.pipe(
+      Effect.map((rows) => rows.map((r) => r.color)),
+    );
+    /** Replace the whole succès set (only known colours are stored). */
+    const setAchievements = (colors: ReadonlyArray<string>) =>
+      sql.withTransaction(
+        Effect.gen(function* () {
+          const valid = [...new Set(colors)].filter((c) => COLOR_BY_NAME.has(c));
+          yield* sql`DELETE FROM achievement`;
+          for (const c of valid) yield* sql`INSERT INTO achievement (color) VALUES (${c})`;
+          return valid;
+        }),
+      );
+
     if ((yield* countEnclos) === 0) yield* createEnclos;
 
     return {
@@ -729,6 +747,8 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
       tickAll,
       getWebhook,
       setWebhook,
+      getAchievements,
+      setAchievements,
     } as const;
   }),
 }) {}

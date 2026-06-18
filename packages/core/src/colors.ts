@@ -83,6 +83,16 @@ export const COLOR_BY_NAME: ReadonlyMap<string, ColorDef> = new Map(COLORS.map((
 export const BASE_COLORS: ReadonlyArray<string> = COLORS.filter((c) => !c.parents).map((c) => c.name);
 export const MAX_GEN = 10;
 
+/** Fold to a comparable key: lower-case, accent-stripped (so "amande" ≡ "Amande", "ebene" ≡ "Ebène"). */
+const colorKey = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+const COLOR_BY_KEY: ReadonlyMap<string, string> = new Map(COLORS.map((c) => [colorKey(c.name), c.name]));
+
+/** Resolve loose user input (case/accent-insensitive) to a canonical colour name, or null if unknown.
+ *  E.g. "amande" → "Amande", "ebene et rousse" → "Ebène et Rousse". */
+export function resolveColor(input: string): string | null {
+  return COLOR_BY_KEY.get(colorKey(input)) ?? null;
+}
+
 /** Per-generation accent colour for the UI. */
 export const GEN_COLOR: Record<number, string> = {
   1: "#8d9bb5", 2: "#e8607a", 3: "#9b8cff", 4: "#57c4f2", 5: "#c06bff",

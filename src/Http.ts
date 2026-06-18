@@ -17,7 +17,7 @@ import {
 } from "./Repo.js";
 import { Discord } from "./Discord.js";
 import { Ai, type AiActions, type ChatMessage } from "./Ai.js";
-import { recommend, assistantPlan, type InvMount, type AssistMount, type AssistEnclos } from "@dd/core";
+import { recommend, assistantPlan, buildName, resolveColor, type InvMount, type AssistMount, type AssistEnclos } from "@dd/core";
 import {
   BARS,
   FOCUSABLE,
@@ -95,11 +95,13 @@ const router1 = HttpRouter.empty.pipe(
       const discord = yield* Discord;
       const enclos = yield* repo.all;
       const stable = yield* repo.stable;
+      const achievements = yield* repo.getAchievements;
       const webhookConfigured = yield* discord.isConfigured;
       const tickMs = yield* Config.integer("TICK_MS").pipe(Config.withDefault(10000));
       return HttpServerResponse.unsafeJson({
         enclos,
         stable,
+        achievements,
         settings: { webhookConfigured },
         meta: {
           fuelBars: BARS,
@@ -218,6 +220,7 @@ const router1 = HttpRouter.empty.pipe(
         level: typeof body.level === "number" ? body.level : 60,
         optimakina: body.optimakina === true,
         clonage: body.clonage !== false,
+        achievements: yield* repo.getAchievements,
       });
       return HttpServerResponse.unsafeJson(result);
     }),
@@ -258,6 +261,7 @@ const router1 = HttpRouter.empty.pipe(
         level: typeof body.level === "number" ? body.level : 60,
         optimakina: body.optimakina === true,
         clonage: body.clonage !== false,
+        achievements: yield* repo.getAchievements,
       });
       return HttpServerResponse.unsafeJson(result);
     }),
@@ -318,7 +322,11 @@ const router1 = HttpRouter.empty.pipe(
             onSome: (d) => ({ ok: true, cloneId: d.id }),
           }),
         addMounts: async (p) => {
-          const rows = Array.from({ length: p.count }, () => ({ color: p.color, sex: p.sex, status: p.status }));
+          // Normalise the colour to its canonical name ("amande" → "Amande") and name each mount by
+          // the in-game convention (e.g. "a-f"), not the raw colour string.
+          const color = resolveColor(p.color) ?? p.color;
+          const name = buildName({ color, sex: p.sex, keeper: false });
+          const rows = Array.from({ length: p.count }, () => ({ name, color, sex: p.sex, status: p.status }));
           const r = await Effect.runPromise(repo.importMounts(rows, null));
           return { created: r.created.length };
         },
@@ -335,6 +343,7 @@ const router1 = HttpRouter.empty.pipe(
         level: typeof body.level === "number" ? body.level : 60,
         optimakina: body.optimakina === true,
         clonage: body.clonage !== false,
+        achievements: yield* repo.getAchievements,
       }, actions);
       const enc = new TextEncoder();
       const sse = Stream.fromAsyncIterable(it, (e) => new Error(String(e))).pipe(
@@ -507,6 +516,17 @@ export const router = router1.pipe(
         "🔔 Test from Dragodinde Notif — the webhook works!",
       );
       return HttpServerResponse.unsafeJson(result);
+    }),
+  ),
+
+  HttpRouter.post(
+    "/api/achievements",
+    Effect.gen(function* () {
+      const repo = yield* Repo;
+      const body = (yield* readBody) as { colors?: unknown };
+      const colors = Array.isArray(body.colors) ? body.colors.filter((c): c is string => typeof c === "string") : [];
+      const saved = yield* repo.setAchievements(colors);
+      return HttpServerResponse.unsafeJson({ achievements: saved });
     }),
   ),
 );

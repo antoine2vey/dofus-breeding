@@ -40,6 +40,10 @@ export interface RecommendInput {
   readonly level: number; // assumed parent level for odds
   readonly optimakina: boolean;
   readonly clonage: boolean;
+  /** Colours whose achievement is already unlocked (succès). They satisfy the GOAL (sink/
+   *  coverage) even if no mount is owned — but NOT breeding supply, so a done colour that's a
+   *  parent of the target is still produced. */
+  readonly achievements?: ReadonlyArray<string>;
 }
 
 export interface BreedAction {
@@ -79,7 +83,9 @@ const label = (m: InvMount) => m.name || `${m.color || "?"} ${m.sex === "F" ? "�
 
 export function recommend(input: RecommendInput): Recommendation {
   const { mounts, targetGen, freeSlots, level, optimakina } = input;
-  const obtained = new Set(mounts.map((m) => m.color).filter(Boolean));
+  const done = new Set((input.achievements ?? []).filter((c) => COLOR_BY_NAME.has(c)));
+  // "Obtained" for the GOAL = colours you own OR whose achievement is already unlocked.
+  const obtained = new Set([...mounts.map((m) => m.color).filter(Boolean), ...done]);
   const highestGen = Math.max(0, ...mounts.map((m) => genOf(m.color)));
 
   // Colours <= targetGen we don't yet own.
@@ -87,11 +93,37 @@ export function recommend(input: RecommendInput): Recommendation {
     (c) => c.name,
   );
 
-  // Value of producing a colour: spine progress, big bonus if it's a colour we still lack.
+  // Deterministic plan = source of truth for how much of each colour is still needed.
+  // usableStock (non-sterile, non-keeper) covers parent-uses; ownedStock + unlocked achievements
+  // satisfy the "own >=1" sink (but not breeding supply).
+  const usableStock: Record<string, number> = {};
+  const ownedStock: Record<string, number> = {};
+  for (const m of mounts) {
+    if (!m.color) continue;
+    ownedStock[m.color] = (ownedStock[m.color] ?? 0) + 1;
+    if (m.status !== "sterile" && !m.keeper) usableStock[m.color] = (usableStock[m.color] ?? 0) + 1;
+  }
+  for (const c of done) ownedStock[c] = Math.max(1, ownedStock[c] ?? 0);
+  const policy: Record<number, GenPolicy> = {};
+  for (let g = 2; g <= 10; g++) policy[g] = { level, optima: optimakina };
+  const plan = computePlan({
+    maxGen: targetGen,
+    policy,
+    reproducteur: false,
+    inventory: usableStock,
+    ownedAny: ownedStock,
+    clonage: input.clonage,
+    gender: true,
+  });
+
+  // Value of producing a colour: spine progress ONLY if the plan still needs it (so a "done" or
+  // already-covered colour with zero demand scores ~0 and isn't bred), plus a coverage bonus for a
+  // goal colour we still lack (done colours are `obtained` → excluded from coverage).
   const value = (race: string) => {
     const pot = POTENTIAL[race] ?? genOf(race);
-    let v = pot >= targetGen ? Math.pow(3, genOf(race)) : 0.001;
-    if (!obtained.has(race)) v += 1e6; // coverage: prioritise new colours
+    const needed = (plan.demand[race] ?? 0) > 0;
+    let v = pot >= targetGen && needed ? Math.pow(3, genOf(race)) : 0.001;
+    if (!obtained.has(race)) v += 1e6;
     return v;
   };
 
@@ -146,26 +178,7 @@ export function recommend(input: RecommendInput): Recommendation {
     });
   }
 
-  // ── Capture: only Amande/Dorée/Rousse are wild-capturable. How many of each depends on the
-  //    target generation and what usable stock you already hold — ask the deterministic planner. ──
-  const usableStock: Record<string, number> = {};
-  const ownedStock: Record<string, number> = {};
-  for (const m of mounts) {
-    if (!m.color) continue;
-    ownedStock[m.color] = (ownedStock[m.color] ?? 0) + 1; // any state — satisfies the "own >=1" sink
-    if (m.status !== "sterile" && !m.keeper) usableStock[m.color] = (usableStock[m.color] ?? 0) + 1;
-  }
-  const policy: Record<number, GenPolicy> = {};
-  for (let g = 2; g <= 10; g++) policy[g] = { level, optima: optimakina };
-  const plan = computePlan({
-    maxGen: targetGen,
-    policy,
-    reproducteur: false,
-    inventory: usableStock,
-    ownedAny: ownedStock,
-    clonage: input.clonage,
-    gender: true,
-  });
+  // ── Capture: only Amande/Dorée/Rousse are wild-capturable; counts come from the plan above. ──
   const capture: CaptureAction[] = [];
   for (const c of BASES) {
     const n = Math.round(plan.baseCaptures[c] ?? 0);
@@ -206,7 +219,7 @@ export function recommend(input: RecommendInput): Recommendation {
   return {
     targetGen,
     highestGen,
-    obtainedColors: obtained.size,
+    obtainedColors: [...obtained].filter((c) => genOf(c) <= targetGen).length,
     missingToTarget,
     breed,
     capture,

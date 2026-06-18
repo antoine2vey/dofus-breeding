@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assistantPlan, type AssistMount, type AssistEnclos } from "@dd/core";
+import { assistantPlan, recommend, COLORS, type AssistMount, type AssistEnclos } from "@dd/core";
 
 const m = (o: Partial<AssistMount> & { id: number }): AssistMount => ({
   name: `dd-${o.id}`,
@@ -84,6 +84,42 @@ describe("assistantPlan", () => {
     expect(roadmap.reached).toBe(true);
     expect(nextStep.done).toBe(true);
     expect(nextStep.summary).toContain("atteint");
+  });
+
+  it("succès: done gen-4 → push gen 5 → produce the gen-5 parents, never the done dead-ends", () => {
+    const doneGen4 = COLORS.filter((c) => c.gen <= 4).map((c) => c.name); // achievements unlocked, own nothing
+    const { roadmap } = assistantPlan({
+      mounts: [], enclos: [], targetGen: 5, level: 100, optimakina: true, clonage: true, achievements: doneGen4,
+    });
+    const need: Record<string, number> = {};
+    for (const g of roadmap.gens) for (const r of g.rows) need[r.color] = r.need;
+
+    // Done dead-ends (gen-4 colours that are NOT a gen-5 parent) → excluded from the goal.
+    expect(need["Indigo et Rousse"] ?? 0).toBe(0);
+    expect(need["Ebène et Rousse"] ?? 0).toBe(0);
+    // Done colours that ARE gen-5 parents → still produced (achievement ≠ usable breeding copy).
+    expect(need["Ebène et Indigo"] ?? 0).toBeGreaterThan(0); // parent of Pourpre + Orchidée
+    expect(need["Amande et Rousse"] ?? 0).toBeGreaterThan(0); // parent of Pourpre
+    // The gen-5 targets themselves (not done) → needed.
+    expect((need["Pourpre"] ?? 0) + (need["Orchidée"] ?? 0)).toBeGreaterThan(0);
+
+    // Control: WITHOUT the succès, the same gen-4 dead-end IS required (it's a sink ≤ target).
+    const ctl = assistantPlan({ mounts: [], enclos: [], targetGen: 5, level: 100, optimakina: true, clonage: true });
+    const ctlNeed: Record<string, number> = {};
+    for (const g of ctl.roadmap.gens) for (const r of g.rows) ctlNeed[r.color] = r.need;
+    expect(ctlNeed["Indigo et Rousse"] ?? 0).toBeGreaterThan(0);
+    // …and the succès strictly reduce the captures owed.
+    expect(roadmap.totalCaptures).toBeLessThan(ctl.roadmap.totalCaptures);
+  });
+
+  it("recommend: achievements drop done colours from missingToTarget + cut captures", () => {
+    const doneGen4 = COLORS.filter((c) => c.gen <= 4).map((c) => c.name);
+    const rec = recommend({ mounts: [], targetGen: 5, freeSlots: 4, level: 100, optimakina: true, clonage: true, achievements: doneGen4 });
+    expect(rec.missingToTarget).not.toContain("Indigo et Rousse"); // done
+    expect(rec.missingToTarget).toContain("Pourpre"); // gen 5, not done
+    const cap = (r: ReturnType<typeof recommend>) => r.capture.reduce((n, c) => n + c.count, 0);
+    const ctl = recommend({ mounts: [], targetGen: 5, freeSlots: 4, level: 100, optimakina: true, clonage: true });
+    expect(cap(rec)).toBeLessThan(cap(ctl));
   });
 
   it("a colour owned only as a keeper/sterile satisfies the sink — no phantom captures/crosses", () => {

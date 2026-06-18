@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { resolveColor, buildName } from "@dd/core";
 import {
   bandRate,
   focusAllMaxed,
@@ -153,5 +154,22 @@ describe("tickEnclos", () => {
     // focus requires maturite too, but only amour fuel is set -> maturite never maxes
     const r = tickEnclos(enclos({ amour: 95000 }, [d], ["endurance", "maturite"]));
     expect(r.completed.length).toBe(0);
+  });
+});
+
+describe("resolveColor", () => {
+  it("maps loose input to canonical colour names (case/accent-insensitive)", () => {
+    expect(resolveColor("amande")).toBe("Amande");
+    expect(resolveColor("AMANDE")).toBe("Amande");
+    expect(resolveColor("ebene")).toBe("Ebène");
+    expect(resolveColor("ebène et rousse")).toBe("Ebène et Rousse");
+    expect(resolveColor("  Dorée  ")).toBe("Dorée");
+  });
+  it("returns null for unknown colours", () => {
+    expect(resolveColor("licorne")).toBeNull();
+  });
+  it("names an Amande capture by the in-game convention, not the raw colour", () => {
+    expect(buildName({ color: resolveColor("amande")!, sex: "F", keeper: false })).toBe("a-f");
+    expect(buildName({ color: resolveColor("amande")!, sex: "M", keeper: false })).toBe("a-m");
   });
 });

@@ -15,6 +15,7 @@ export interface ReplyOpts {
 	readonly level: number;
 	readonly optimakina: boolean;
 	readonly clonage: boolean;
+	readonly achievements: ReadonlyArray<string>;
 }
 
 /** Side-effecting bridge the HTTP layer provides: reads live state + mutates the tracker.
@@ -51,6 +52,9 @@ RÈGLES :
   deleteMounts) : ne les exécute QUE si l'utilisateur le demande/confirme explicitement.
 - féconde = prête à reproduire (jauges à 20K) ; fertile = pas encore prête (à monter en enclos) ;
   stérile = a déjà reproduit (à cloner). Seules les féconde se croisent.
+- Enregistrer une capture (« addMounts ») exige le SEXE (M/F). Si l'utilisateur ne le précise pas
+  (ex. « j'ai capturé 1 amande »), DEMANDE-le avant d'appeler l'outil — ne devine jamais. Passe la
+  couleur telle quelle (ex. « Amande ») : l'app la normalise et nomme la monture selon la convention.
 
 Outils lecture : getState (cheptel + enclos en direct), getPlan (feuille de route + prochaine
 étape), crossOdds, simulate, suggestName.
@@ -91,6 +95,7 @@ export class Ai extends Effect.Service<Ai>()("app/Ai", {
 							level: opts.level,
 							optimakina: opts.optimakina,
 							clonage: opts.clonage,
+							achievements: opts.achievements,
 						});
 					},
 				}),
@@ -177,7 +182,7 @@ export class Ai extends Effect.Service<Ai>()("app/Ai", {
 					execute: async (p) => actions.recordClone(p),
 				}),
 				addMounts: tool({
-					description: "Enregistre des captures/ajouts : N montures d'une couleur/sexe dans l'étable.",
+					description: "Enregistre des captures/ajouts : N montures d'une couleur/sexe dans l'étable. Le sexe est obligatoire — demande-le si l'utilisateur ne l'a pas donné.",
 					inputSchema: z.object({ color: z.string(), sex: z.enum(["M", "F"]), status: status.default("fertile"), count: z.number().int().min(1).max(50) }),
 					execute: async (p) => actions.addMounts(p),
 				}),

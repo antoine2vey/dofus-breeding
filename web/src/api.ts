@@ -113,6 +113,12 @@ export const api = {
       body: JSON.stringify(body),
     }).then((r) => json<AssistantPlan>(r)),
 
+  setAchievements: (colors: string[]) =>
+    fetch("/api/achievements", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ colors }),
+    }).then((r) => json<{ achievements: string[] }>(r)),
   setWebhook: (webhookUrl: string) =>
     fetch("/api/settings", {
       method: "POST",

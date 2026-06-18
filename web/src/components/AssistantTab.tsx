@@ -311,12 +311,14 @@ export function AssistantTab({ enclos, stable, onChanged }: { enclos: Enclos[]; 
                         const frac = total > 0 ? r.owned / total : 1;
                         return (
                           <tr key={r.color}>
-                            <td style={{ color: GEN_COLOR[r.gen] }}>{r.color}</td>
-                            <td className="rm-recipe muted small">{r.recipe ? r.recipe.join(" + ") : "capture"}</td>
+                            <td style={{ color: GEN_COLOR[r.gen] }}>{r.done ? "🏆 " : ""}{r.color}</td>
+                            <td className="rm-recipe muted small">{r.recipe ? r.recipe.join(" + ") : "capture"}{r.done && r.need > 0 ? " · succès, mais parent requis" : ""}</td>
                             <td className="rm-prog">
-                              <div className="hmeter"><div className="hfill" style={{ width: `${frac * 100}%`, background: GEN_COLOR[r.gen] }} /></div>
+                              {r.done && r.need === 0
+                                ? <span className="muted small">succès ✓</span>
+                                : <div className="hmeter"><div className="hfill" style={{ width: `${frac * 100}%`, background: GEN_COLOR[r.gen] }} /></div>}
                             </td>
-                            <td className="rm-count">{r.owned}/{total}</td>
+                            <td className="rm-count">{r.done && r.need === 0 ? "—" : `${r.owned}/${total}`}</td>
                           </tr>
                         );
                       })}

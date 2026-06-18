@@ -40,6 +40,9 @@ export interface AssistantInput {
   readonly level: number;
   readonly optimakina: boolean;
   readonly clonage: boolean;
+  /** Colours whose achievement (succès) is already unlocked — satisfy the goal even if not owned,
+   *  but never breeding supply (a done colour that's a parent of the target is still produced). */
+  readonly achievements?: ReadonlyArray<string>;
 }
 
 // ── Layer A: roadmap ──────────────────────────────────────────────────────
@@ -47,6 +50,7 @@ export interface RoadmapRow {
   readonly color: string;
   readonly gen: number;
   readonly owned: number; // total held of this colour (any state)
+  readonly done: boolean; // achievement (succès) already unlocked
   readonly need: number; // fresh still to produce (floor demand, minus usable stock)
   readonly recipe: readonly [string, string] | null;
 }
@@ -115,8 +119,13 @@ export function assistantPlan(input: AssistantInput): AssistantPlan {
   const { mounts, enclos, targetGen, level, optimakina, clonage } = input;
 
   const usable = usableStockByColor(mounts);
+  const done = new Set((input.achievements ?? []).filter((c) => COLOR_BY_NAME.has(c)));
   const ownedByColor: Record<string, number> = {};
   for (const d of mounts) if (d.color) ownedByColor[d.color] = (ownedByColor[d.color] ?? 0) + 1;
+  // The sink ("own >=1") is satisfied by an owned copy OR an unlocked achievement.
+  const sinkStock: Record<string, number> = { ...ownedByColor };
+  for (const c of done) sinkStock[c] = Math.max(1, sinkStock[c] ?? 0);
+  const obtainedOrDone = (color: string) => (ownedByColor[color] ?? 0) > 0 || done.has(color);
 
   // ── Layer A: roadmap from the deterministic plan (cheptel-aware) ──
   const plan = computePlan({
@@ -124,7 +133,7 @@ export function assistantPlan(input: AssistantInput): AssistantPlan {
     policy: uniformPolicy(level, optimakina),
     reproducteur: false,
     inventory: usable, // usable stock covers parent-uses
-    ownedAny: ownedByColor, // any owned copy (incl. keeper/sterile) satisfies the "own >=1" sink
+    ownedAny: sinkStock, // owned copy OR unlocked succès satisfies the "own >=1" sink
     clonage,
     gender: true,
   });
@@ -135,14 +144,15 @@ export function assistantPlan(input: AssistantInput): AssistantPlan {
         color: r.name,
         gen: r.gen,
         owned: ownedByColor[r.name] ?? 0,
+        done: done.has(r.name),
         need: r.fresh,
         recipe: r.recipe,
       }))
-      .filter((r) => r.need > 0 || r.owned > 0),
+      .filter((r) => r.need > 0 || r.owned > 0 || r.done),
   })).filter((g) => g.rows.length > 0);
 
   const targetColors = COLORS.filter((c) => c.gen <= targetGen);
-  const obtainedColors = targetColors.filter((c) => (ownedByColor[c.name] ?? 0) > 0).length;
+  const obtainedColors = targetColors.filter((c) => obtainedOrDone(c.name)).length;
   const reached = obtainedColors === targetColors.length;
 
   const roadmap: Roadmap = {
@@ -174,6 +184,7 @@ export function assistantPlan(input: AssistantInput): AssistantPlan {
     level,
     optimakina,
     clonage,
+    achievements: input.achievements,
   });
 
   // Colours that are consumed as a parent somewhere in the plan (worth ripening to féconde).

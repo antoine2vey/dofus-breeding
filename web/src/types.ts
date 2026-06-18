@@ -60,6 +60,7 @@ export interface Meta {
 export interface AppState {
   enclos: Enclos[];
   stable: Dragodinde[];
+  achievements: string[];
   settings: { webhookConfigured: boolean };
   meta: Meta;
 }

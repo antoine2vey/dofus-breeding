@@ -428,6 +428,15 @@ button.mini.danger { color: #e8607a; }
 .rm-prog .hfill { height: 100%; }
 .rm-count { text-align: right; width: 56px; font-variant-numeric: tabular-nums; }
 
+/* Succès tab */
+.succ-gen { margin-bottom: 10px; }
+.succ-head { display: flex; align-items: center; gap: 10px; padding: 4px 0; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+.succ-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 4px; }
+.succ-cell { display: flex; align-items: center; gap: 7px; background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; padding: 5px 9px; font-size: 12px; cursor: pointer; user-select: none; }
+.succ-cell:hover { border-color: var(--accent); }
+.succ-cell.on { background: var(--panel); border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+.succ-cell input { accent-color: var(--accent); cursor: pointer; margin: 0; }
+
 /* Assistant chat */
 .chat-log { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
 .chat-msg { display: flex; gap: 8px; font-size: 13px; line-height: 1.5; }
