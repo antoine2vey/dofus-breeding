@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { COLOR_BY_NAME, COLORS, GEN_COLOR } from "@dd/core";
+import { COLOR_BY_NAME, COLORS, GEN_COLOR, inGameCompare } from "@dd/core";
 import type { AssistantPlan, BreedAction, CaptureNeed, CloneAction, RaiseAction } from "@dd/core";
 import { api } from "../api";
 import type { Dragodinde, Enclos, ReproStatus, Sex } from "../types";
@@ -267,7 +267,7 @@ export function AssistantTab({ enclos, stable, onChanged }: { enclos: Enclos[]; 
               {ns.raise.map((a) => (
                 <div className="step-row" key={a.enclosId}>
                   <span className="sr-main">{a.enclosName} <span className="muted small">({a.mountIds.length})</span></span>
-                  <span className="sr-odds small">{a.mountIds.map(nm).join(", ")}</span>
+                  <span className="sr-odds small">{a.mountIds.map(nm).sort(inGameCompare).join(", ")}</span>
                   <span className="sr-act"><button className="mini" disabled={busy} onClick={() => applyRaise(a)}>→ déplacer</button></span>
                 </div>
               ))}

@@ -84,6 +84,17 @@ export function buildName(p: NameParts): string {
   return [...head, ...grandparentCodes(p.grandparents)].join("-");
 }
 
+/** In-game list order. The in-game namer sorts as if the hyphens weren't there — it compares the
+ *  segments concatenated — so "ad-f-d-a" ("adfda") sorts BEFORE "a-m-a-a" ("amaa") because d < m,
+ *  even though raw "-" (0x2D) < "d". A plain code-point compare on the hyphen-stripped key also
+ *  floats keepers (uppercase K) above lowercase and females (f) before males (m), as in game. */
+export const inGameSortKey = (name: string): string => name.replace(/-/g, "");
+export const inGameCompare = (a: string, b: string): number => {
+  const ka = inGameSortKey(a);
+  const kb = inGameSortKey(b);
+  return ka < kb ? -1 : ka > kb ? 1 : 0;
+};
+
 /** Decode a name written in this convention (`<code>-[K-]<sex>[-gp…]`). null if it doesn't match. */
 export function parseName(name: string): NameParts | null {
   const parts = name.trim().split("-");
