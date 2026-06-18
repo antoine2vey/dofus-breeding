@@ -17,6 +17,7 @@ const ENCLOS_CAP = 10;
 /** A mount with its location, for the live-state-aware planner. */
 export interface AssistMount {
   readonly id: number;
+  readonly name: string; // the in-game (convention) name — for human-readable labels
   readonly color: string; // "" if unset
   readonly sex: "M" | "F";
   readonly status: ReproStatus;
@@ -159,6 +160,7 @@ export function assistantPlan(input: AssistantInput): AssistantPlan {
   //    (same deterministic source); `raise` is the new live-state piece. ──
   const invMounts: InvMount[] = mounts.map((m) => ({
     id: m.id,
+    name: m.name,
     color: m.color,
     sex: m.sex,
     status: m.status,

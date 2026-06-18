@@ -33,11 +33,11 @@ function BreedRow({ a, busy, onApply }: { a: BreedAction; busy: boolean; onApply
   );
 }
 
-function CloneRow({ a, busy, onApply }: { a: CloneAction; busy: boolean; onApply: (sex: Sex) => void }) {
+function CloneRow({ a, names, busy, onApply }: { a: CloneAction; names: [string, string]; busy: boolean; onApply: (sex: Sex) => void }) {
   const [sex, setSex] = useState<Sex>("F");
   return (
     <div className="step-row">
-      <span className="sr-main">♻ {a.color} <span className="muted small">#{a.aId}, #{a.bId}</span></span>
+      <span className="sr-main">♻ <span className="muted small">{names[0]}, {names[1]}</span></span>
       <span className="sr-odds muted small">{a.reason}</span>
       <span className="sr-act">
         <select value={sex} onChange={(e) => setSex(e.target.value as Sex)}><option value="F">♀</option><option value="M">♂</option></select>
@@ -175,6 +175,9 @@ export function AssistantTab({ enclos, stable, onChanged }: { enclos: Enclos[]; 
   // Live context (from props — always fresh via the 3s poll)
   const stableByStatus = (st: ReproStatus) => stable.filter((m) => m.status === st).length;
   const ns = plan?.nextStep;
+  // Resolve mount ids to their in-game (convention) names so steps are findable in the game.
+  const nameById = new Map([...stable, ...enclos.flatMap((e) => e.dragodindes)].map((m) => [m.id, m.name]));
+  const nm = (id: number) => nameById.get(id) ?? `#${id}`;
 
   return (
     <div className="pane planner assistant-v2">
@@ -254,8 +257,8 @@ export function AssistantTab({ enclos, stable, onChanged }: { enclos: Enclos[]; 
               <div className="step-title">⬆ Élever vers féconde <span className="muted small">déplacement auto</span></div>
               {ns.raise.map((a) => (
                 <div className="step-row" key={a.enclosId}>
-                  <span className="sr-main">{a.mountIds.length} monture(s) → {a.enclosName}</span>
-                  <span className="sr-odds muted small">{a.colors.join(", ")}</span>
+                  <span className="sr-main">{a.enclosName} <span className="muted small">({a.mountIds.length})</span></span>
+                  <span className="sr-odds small">{a.mountIds.map(nm).join(", ")}</span>
                   <span className="sr-act"><button className="mini" disabled={busy} onClick={() => applyRaise(a)}>→ déplacer</button></span>
                 </div>
               ))}
@@ -275,7 +278,7 @@ export function AssistantTab({ enclos, stable, onChanged }: { enclos: Enclos[]; 
             <div className="step-group">
               <div className="step-title">♻ Cloner (stériles)</div>
               {ns.clone.map((a) => (
-                <CloneRow key={`${a.aId}-${a.bId}`} a={a} busy={busy} onApply={(s) => applyClone(a, s)} />
+                <CloneRow key={`${a.aId}-${a.bId}`} a={a} names={[nm(a.aId), nm(a.bId)]} busy={busy} onApply={(s) => applyClone(a, s)} />
               ))}
             </div>
           )}

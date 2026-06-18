@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { assistantPlan, type AssistMount, type AssistEnclos } from "@dd/core";
 
 const m = (o: Partial<AssistMount> & { id: number }): AssistMount => ({
+  name: `dd-${o.id}`,
   color: "Amande",
   sex: "F",
   status: "fertile",

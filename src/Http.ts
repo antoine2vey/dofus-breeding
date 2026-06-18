@@ -204,6 +204,7 @@ const router1 = HttpRouter.empty.pipe(
       const emptySlots = enclos.reduce((s, e) => s + Math.max(0, MAX_DRAGODINDES - e.dragodindes.length), 0);
       const mounts: InvMount[] = all.map((d) => ({
         id: d.id,
+        name: d.name,
         color: d.color,
         sex: d.sex,
         status: d.status,
@@ -236,6 +237,7 @@ const router1 = HttpRouter.empty.pipe(
       const all = yield* repo.allMounts;
       const mounts: AssistMount[] = all.map((d) => ({
         id: d.id,
+        name: d.name,
         color: d.color,
         sex: d.sex,
         status: d.status,
@@ -288,6 +290,7 @@ const router1 = HttpRouter.empty.pipe(
           return {
             mounts: all.map((d) => ({
               id: d.id,
+              name: d.name,
               color: d.color,
               sex: d.sex,
               status: d.status,

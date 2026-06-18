@@ -25,6 +25,7 @@ export type ReproStatus = "sterile" | "fertile" | "feconde";
 
 export interface InvMount {
   readonly id: number;
+  readonly name?: string; // the in-game (convention) name — used for human-readable labels
   readonly color: string; // "" if unset
   readonly sex: "M" | "F";
   readonly status: ReproStatus;
@@ -72,7 +73,9 @@ export interface Recommendation {
   readonly recycle: ReadonlyArray<RecycleAction>;
 }
 
-const label = (m: InvMount) => `${m.color || "?"} ${m.sex === "F" ? "♀" : "♂"} #${m.id}`;
+// Prefer the in-game (convention) name so the user can actually find the mount in the game;
+// fall back to colour/sex/id only when a name isn't recorded.
+const label = (m: InvMount) => m.name || `${m.color || "?"} ${m.sex === "F" ? "♀" : "♂"} #${m.id}`;
 
 export function recommend(input: RecommendInput): Recommendation {
   const { mounts, targetGen, freeSlots, level, optimakina } = input;
