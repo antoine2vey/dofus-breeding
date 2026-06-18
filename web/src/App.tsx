@@ -4,13 +4,12 @@ import type { AppState, DragoPatch, EnclosPatch } from "./types";
 import { EnclosWorkspace } from "./components/EnclosWorkspace";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { OddsCalculator } from "./components/OddsCalculator";
-import { RushSimulator } from "./components/RushSimulator";
 import { BreedingTree } from "./components/BreedingTree";
 import { NamingTab } from "./components/NamingTab";
 import { HerdTab } from "./components/HerdTab";
 import { AssistantTab } from "./components/AssistantTab";
 
-type Tab = "tracker" | "herd" | "assistant" | "planner" | "odds" | "sim" | "naming";
+type Tab = "tracker" | "herd" | "assistant" | "planner" | "odds" | "naming";
 
 export default function App() {
   const [state, setState] = useState<AppState | null>(null);
@@ -119,12 +118,6 @@ export default function App() {
             Probabilités
           </button>
           <button
-            className={"tab" + (tab === "sim" ? " active" : "")}
-            onClick={() => setTab("sim")}
-          >
-            Simulateur
-          </button>
-          <button
             className={"tab" + (tab === "naming" ? " active" : "")}
             onClick={() => setTab("naming")}
           >
@@ -170,10 +163,6 @@ export default function App() {
       ) : tab === "odds" ? (
         <div className="split">
           <OddsCalculator />
-        </div>
-      ) : tab === "sim" ? (
-        <div className="split">
-          <RushSimulator mounts={allMounts} />
         </div>
       ) : (
         <div className="split">

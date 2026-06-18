@@ -1,9 +1,14 @@
 import { useMemo, useState } from "react";
 import { COLORS, COLOR_BY_NAME, GEN_COLOR } from "@dd/core";
 import { crossOdds } from "@dd/core";
-import { monteCarlo, makeRng } from "@dd/core";
+import { monteCarlo, makeRng, type SimMount } from "@dd/core";
 import type { Dragodinde } from "../types";
-import { toSimInventory } from "./RushSimulator";
+
+/** Your real mounts -> sim feedstock (skip uncoloured & keepers; sterile = clonage feedstock). */
+const toSimInventory = (mounts: Dragodinde[]): SimMount[] =>
+  mounts
+    .filter((m) => m.color && !m.keeper)
+    .map((m) => ({ race: m.color, sex: m.sex === "M" ? 0 : 1, gp: m.grandparents, fertile: m.status !== "sterile" }));
 
 const POTENTIAL: Record<string, number> = (() => {
   const pot: Record<string, number> = {};

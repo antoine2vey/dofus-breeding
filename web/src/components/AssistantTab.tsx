@@ -161,7 +161,7 @@ export function AssistantTab() {
             <>
               <div className="policy-head" style={{ marginTop: 14 }}>
                 <span>② À capturer</span>
-                <span className="muted">estimation idéale (lignée propre) · vois le Simulateur pour ta lignée réelle</span>
+                <span className="muted">estimation idéale (lignée propre) · vois le Planificateur pour ta lignée réelle</span>
               </div>
               <div className="map-chips">
                 {rec.capture.map((c) => (
