@@ -13,6 +13,62 @@ export function AssistantTab() {
   const [rec, setRec] = useState<Recommendation | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  // Chat (SSE streaming)
+  const [chat, setChat] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
+  const [input, setInput] = useState("");
+  const [streaming, setStreaming] = useState(false);
+
+  const sendChat = async () => {
+    const text = input.trim();
+    if (!text || streaming) return;
+    const history = [...chat, { role: "user" as const, content: text }];
+    setChat([...history, { role: "assistant", content: "" }]);
+    setInput("");
+    setStreaming(true);
+    try {
+      const res = await fetch("/api/ai/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: history, targetGen, level, optimakina, clonage, freeSlots }),
+      });
+      if (!res.ok || !res.body) {
+        const e = await res.json().catch(() => ({ error: "Erreur réseau" }));
+        setChat([...history, { role: "assistant", content: `⚠️ ${e.error ?? "Erreur"}` }]);
+        return;
+      }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      let acc = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i: number;
+        while ((i = buf.indexOf("\n\n")) >= 0) {
+          const line = buf.slice(0, i);
+          buf = buf.slice(i + 2);
+          if (!line.startsWith("data: ")) continue;
+          const payload = line.slice(6);
+          if (payload === "[DONE]") continue;
+          try {
+            const obj = JSON.parse(payload) as { text?: string; error?: string };
+            if (obj.text) acc += obj.text;
+            if (obj.error) acc += `\n⚠️ ${obj.error}`;
+            const a = acc;
+            setChat([...history, { role: "assistant", content: a }]);
+          } catch {
+            /* ignore partial */
+          }
+        }
+      }
+    } catch {
+      setChat([...history, { role: "assistant", content: "⚠️ Connexion interrompue" }]);
+    } finally {
+      setStreaming(false);
+    }
+  };
+
   const run = () => {
     setBusy(true);
     setErr(null);
@@ -132,6 +188,39 @@ export function AssistantTab() {
           )}
         </>
       )}
+
+      {/* Chat */}
+      <div className="policy-head" style={{ marginTop: 18 }}>
+        <span>💬 Demander à l'assistant</span>
+        <span className="muted">explique le plan, répond aux « et si… » (utilise tes réglages ci-dessus)</span>
+      </div>
+      <div className="chat-log">
+        {chat.length === 0 && (
+          <div className="muted small">
+            Ex. « Que dois-je faire en priorité ? », « Quelles sont mes chances pour un Pourpre ? »,
+            « Combien de captures pour atteindre la gen 7 ? »
+          </div>
+        )}
+        {chat.map((m, i) => (
+          <div key={i} className={"chat-msg " + m.role}>
+            <span className="chat-who">{m.role === "user" ? "toi" : "🤖"}</span>
+            <span className="chat-text">{m.content || (streaming && i === chat.length - 1 ? "…" : "")}</span>
+          </div>
+        ))}
+      </div>
+      <div className="chat-input">
+        <input
+          type="text"
+          value={input}
+          placeholder="Pose ta question…"
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") sendChat(); }}
+          disabled={streaming}
+        />
+        <button onClick={sendChat} disabled={streaming || !input.trim()}>
+          {streaming ? "…" : "Envoyer"}
+        </button>
+      </div>
 
       <p className="plan-note muted">
         Calcul <b>déterministe</b> à partir de ton Cheptel : les meilleures paires (vraies

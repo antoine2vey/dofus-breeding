@@ -358,3 +358,14 @@ nav.tabs { display: flex; gap: 4px; margin-left: 18px; flex: 1; }
 /* Herd table */
 .gen-table td.ctr { text-align: center; }
 .gen-table select, .gen-table input[type="number"] { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; font-family: inherit; font-size: 12px; }
+
+/* Assistant chat */
+.chat-log { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.chat-msg { display: flex; gap: 8px; font-size: 13px; line-height: 1.5; }
+.chat-msg.user { color: var(--text); }
+.chat-msg.assistant { color: var(--text); }
+.chat-who { flex: none; width: 28px; color: var(--muted); font-size: 11px; padding-top: 2px; }
+.chat-text { white-space: pre-wrap; }
+.chat-msg.user .chat-text { background: var(--panel2); border-radius: 8px; padding: 4px 9px; }
+.chat-input { display: flex; gap: 8px; margin-top: 8px; }
+.chat-input input { flex: 1; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px; font-family: inherit; font-size: 13px; }

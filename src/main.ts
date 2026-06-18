@@ -6,6 +6,7 @@ import { createServer } from "node:http";
 import { router } from "./Http.js";
 import { Repo } from "./Repo.js";
 import { Discord } from "./Discord.js";
+import { Ai } from "./Ai.js";
 import { SqlLive } from "./Database.js";
 import { TickerLive } from "./Ticker.js";
 
@@ -15,6 +16,7 @@ const PORT = Number(process.env.PORT) || 3000;
 const RepoLive = Repo.Default.pipe(Layer.provideMerge(SqlLive));
 const ServicesLive = Discord.Default.pipe(
   Layer.provideMerge(RepoLive),
+  Layer.provideMerge(Ai.Default),
   Layer.provide(NodeHttpClient.layer),
 );
 

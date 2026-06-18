@@ -20,13 +20,16 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^3.0.73",
     "@dd/core": "*",
     "@effect/platform": "0.96.1",
     "@effect/platform-node": "0.107.0",
     "@effect/sql": "0.51.1",
     "@effect/sql-sqlite-node": "0.52.0",
+    "ai": "^6.0.207",
     "better-sqlite3": "12.10.0",
-    "effect": "3.21.3"
+    "effect": "3.21.3",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@effect/vitest": "0.29.0",

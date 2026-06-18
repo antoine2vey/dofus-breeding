@@ -4,10 +4,11 @@ import {
   HttpServerRequest,
   HttpServerResponse,
 } from "@effect/platform";
-import { Config, Effect, Option } from "effect";
+import { Config, Effect, Option, Stream } from "effect";
 import { fileURLToPath } from "node:url";
 import { Repo, type CrossInput, type DragoPatch, type EnclosPatch, type SeedInput } from "./Repo.js";
 import { Discord } from "./Discord.js";
+import { Ai, type ChatMessage } from "./Ai.js";
 import { recommend, type InvMount } from "@dd/core";
 import {
   BARS,
@@ -193,6 +194,57 @@ export const router = HttpRouter.empty.pipe(
         clonage: body.clonage !== false,
       });
       return HttpServerResponse.unsafeJson(result);
+    }),
+  ),
+
+  HttpRouter.post(
+    "/api/ai/chat",
+    Effect.gen(function* () {
+      const ai = yield* Ai;
+      const repo = yield* Repo;
+      if (!ai.isConfigured) {
+        return HttpServerResponse.unsafeJson(
+          { error: "OPENAI_API_KEY non configurée (variable d'environnement)" },
+          { status: 400 },
+        );
+      }
+      const body = (yield* readBody) as {
+        messages?: ChatMessage[];
+        targetGen?: number;
+        level?: number;
+        optimakina?: boolean;
+        clonage?: boolean;
+        freeSlots?: number;
+      };
+      const enclos = yield* repo.all;
+      const all = enclos.flatMap((e) => e.dragodindes);
+      const colorById = new Map(all.map((d) => [d.id, d.color]));
+      const inventory: InvMount[] = all.map((d) => ({
+        id: d.id,
+        color: d.color,
+        sex: d.sex,
+        fertile: d.fertile,
+        keeper: d.keeper,
+        grandparents: [d.parentA, d.parentB]
+          .map((pid) => (pid != null ? colorById.get(pid) : undefined))
+          .filter((c): c is string => !!c),
+      }));
+      const it = ai.reply(body.messages ?? [], inventory, {
+        targetGen: typeof body.targetGen === "number" ? body.targetGen : 10,
+        level: typeof body.level === "number" ? body.level : 60,
+        optimakina: body.optimakina === true,
+        clonage: body.clonage !== false,
+        freeSlots: typeof body.freeSlots === "number" ? body.freeSlots : Math.max(1, enclos.length),
+      });
+      const enc = new TextEncoder();
+      const sse = Stream.fromAsyncIterable(it, (e) => new Error(String(e))).pipe(
+        Stream.map((t) => enc.encode(`data: ${JSON.stringify({ text: t })}\n\n`)),
+        Stream.catchAll((e) =>
+          Stream.succeed(enc.encode(`data: ${JSON.stringify({ error: String(e) })}\n\n`)),
+        ),
+        Stream.concat(Stream.succeed(enc.encode("data: [DONE]\n\n"))),
+      );
+      return HttpServerResponse.stream(sse, { contentType: "text/event-stream" });
     }),
   ),
 
