@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { COLORS, GEN_COLOR } from "@dd/core";
 import { api } from "../api";
+import { useMutation } from "../useMutation";
 
 /** Succès — mark the colours whose in-game achievement you've already unlocked. They satisfy the
  *  goal (so the planner stops counting them) but never breeding supply, so a done colour that's a
  *  parent of your target is still produced. */
 export function SuccesTab({ achievements, onChanged }: { achievements: string[]; onChanged: () => void }) {
   const [done, setDone] = useState<Set<string>>(() => new Set(achievements));
-  const [busy, setBusy] = useState(false);
+  const { busy, run } = useMutation(onChanged);
 
   // Keep in sync with the server (the 3s poll) — but never while a save is in flight, so an
   // optimistic edit isn't clobbered by a stale poll mid-save.
@@ -25,8 +26,7 @@ export function SuccesTab({ achievements, onChanged }: { achievements: string[];
 
   const save = (next: Set<string>) => {
     setDone(next); // optimistic
-    setBusy(true);
-    api.setAchievements([...next]).then(onChanged).finally(() => setBusy(false));
+    run(api.setAchievements([...next])); // the seam adds the re-entrancy latch this copy was missing
   };
   const toggle = (color: string) => {
     const next = new Set(done);

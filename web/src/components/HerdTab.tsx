@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { COLORS, COLOR_BY_NAME, GEN_COLOR, buildName, crossOdds, parseName } from "@dd/core";
 import type { NameParts } from "@dd/core";
 import { api } from "../api";
+import { useMutation } from "../useMutation";
 import type { Dragodinde, Enclos, ImportRow, ReproStatus, Sex } from "../types";
 
 const RACES = COLORS.map((c) => c.name);
@@ -46,7 +47,6 @@ export function HerdTab({
   const [optima, setOptima] = useState(false);
   const [babyColor, setBabyColor] = useState("");
   const [babySex, setBabySex] = useState<Sex>("F");
-  const [busy, setBusy] = useState(false);
 
   // Clonage form
   const [cloneAId, setCloneAId] = useState<number | "">("");
@@ -83,15 +83,7 @@ export function HerdTab({
         )
       : null;
 
-  const run = async (p: Promise<unknown>) => {
-    setBusy(true);
-    try {
-      await p;
-      onChanged();
-    } finally {
-      setBusy(false);
-    }
-  };
+  const { busy, run } = useMutation(onChanged);
   const patch = (id: number, body: Partial<Dragodinde>) => run(api.patchDragodinde(id, body));
   const move = (id: number, enclosId: number | null) => run(api.moveDragodinde(id, enclosId));
 

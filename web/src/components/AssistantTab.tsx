@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { COLOR_BY_NAME, COLORS, GEN_COLOR, inGameCompare } from "@dd/core";
 import type { AssistantPlan, BreedAction, CaptureNeed, CloneAction, RaiseAction } from "@dd/core";
 import { api } from "../api";
+import { useMutation } from "../useMutation";
 import type { Dragodinde, Enclos, ReproStatus, Sex } from "../types";
 
 const RACES = COLORS.map((c) => c.name);
@@ -81,7 +82,7 @@ export function AssistantTab({ enclos, stable, onChanged }: { enclos: Enclos[]; 
   const [clonage, setClonage] = useState(true);
   const [plan, setPlan] = useState<AssistantPlan | null>(null);
   const [planErr, setPlanErr] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [planLoading, setPlanLoading] = useState(false); // the (read-only) plan recompute is busy
   const [openGens, setOpenGens] = useState<Set<number>>(new Set());
 
   // Chat (SSE streaming)
@@ -90,14 +91,14 @@ export function AssistantTab({ enclos, stable, onChanged }: { enclos: Enclos[]; 
   const [streaming, setStreaming] = useState(false);
 
   const refetchPlan = useCallback(async () => {
-    setBusy(true);
+    setPlanLoading(true);
     try {
       setPlan(await api.assistantPlan({ targetGen, level, optimakina, clonage }));
       setPlanErr(null);
     } catch {
       setPlanErr("Échec du calcul du plan — le serveur tourne-t-il ?");
     } finally {
-      setBusy(false);
+      setPlanLoading(false);
     }
   }, [targetGen, level, optimakina, clonage]);
 
@@ -107,18 +108,18 @@ export function AssistantTab({ enclos, stable, onChanged }: { enclos: Enclos[]; 
     return () => clearTimeout(t);
   }, [refetchPlan]);
 
+  // Mutations cross the shared mutation seam (latch + busy + refresh). After each one we refresh the
+  // herd and recompute the plan; `busy` the JSX disables on is either a plan recompute or a mutation.
+  const { busy: mutBusy, run } = useMutation(async () => {
+    onChanged();
+    await refetchPlan();
+  });
+  const busy = planLoading || mutBusy;
   const act = async (p: Promise<{ error?: string } | unknown>) => {
-    setBusy(true);
-    try {
-      const r = await p;
-      onChanged();
-      await refetchPlan();
-      // refetchPlan clears planErr on success — surface any action error AFTER it so it sticks.
-      if (r && typeof r === "object" && "error" in r && (r as { error?: string }).error) {
-        setPlanErr((r as { error: string }).error);
-      }
-    } finally {
-      setBusy(false);
+    // refetchPlan (run by the seam) clears planErr on success — surface any action error AFTER it.
+    const r = await run(p);
+    if (r && typeof r === "object" && "error" in r && (r as { error?: string }).error) {
+      setPlanErr((r as { error: string }).error);
     }
   };
   const applyRaise = (a: RaiseAction) => act(api.bulkMove([...a.mountIds], a.enclosId));
