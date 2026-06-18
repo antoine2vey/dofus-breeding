@@ -10,15 +10,18 @@ const STATUS_LABEL: Record<ReproStatus, string> = { feconde: "féconde", fertile
 
 // ── Next-step rows (each owns its local pickers) ───────────────────────────
 function BreedRow({ a, busy, onApply }: { a: BreedAction; busy: boolean; onApply: (color: string, sex: Sex) => void }) {
-  const [color, setColor] = useState(a.top[0]?.race ?? "");
+  // Default to the colour the cross is FOR (the score-driver), not the most probable outcome —
+  // a lineage-tainted parent can make an already-owned by-product the likeliest result.
+  const [color, setColor] = useState(a.intended || a.top[0]?.race || "");
   const [sex, setSex] = useState<Sex>("F");
   return (
     <div className="step-row">
       <span className="sr-main">{a.aLabel} × {a.bLabel}</span>
       <span className="sr-odds">
         {a.top.map((o) => (
-          <span key={o.race} style={{ marginRight: 8 }}>
+          <span key={o.race} style={{ marginRight: 8 }} className={o.race === a.intended ? "sr-intended" : undefined}>
             <b style={{ color: GEN_COLOR[o.gen] }}>{Math.round(o.prob * 100)}%</b> {o.race}
+            {o.race === a.intended && <span className="clone-tag" style={{ marginLeft: 4 }}>visé</span>}
           </span>
         ))}
       </span>

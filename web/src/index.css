@@ -415,6 +415,7 @@ button.mini.danger { color: #e8607a; }
 .step-row:first-of-type { border-top: none; }
 .sr-main { flex: 0 0 auto; font-size: 13px; min-width: 160px; }
 .sr-odds { flex: 1; font-size: 12px; }
+.sr-odds .sr-intended { background: var(--panel2); border-radius: 6px; padding: 1px 6px; }
 .sr-act { flex: 0 0 auto; display: flex; align-items: center; gap: 5px; }
 .sr-act select, .sr-act input { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; font-size: 12px; font-family: inherit; }
 .roadmap-gen { border-bottom: 1px solid var(--line); }

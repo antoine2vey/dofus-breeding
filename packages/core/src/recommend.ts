@@ -53,6 +53,9 @@ export interface BreedAction {
   readonly bLabel: string;
   readonly targetGen: number;
   readonly top: ReadonlyArray<{ race: string; prob: number; gen: number }>;
+  /** The colour the cross is actually FOR — the score-driver (max prob × value), which may not
+   *  be the most probable outcome. The UI defaults the "couleur obtenue" picker to this. */
+  readonly intended: string;
   readonly score: number;
   readonly rationale: string;
 }
@@ -156,12 +159,18 @@ export function recommend(input: RecommendInput): Recommendation {
     if (used.has(s.m.id) || used.has(s.f.id)) continue;
     used.add(s.m.id);
     used.add(s.f.id);
+    // The outcome list stays sorted by probability (honest odds). But the RATIONALE must name
+    // the outcome that actually EARNED the cross its score (max prob × value), not the most
+    // likely one: a lineage-tainted parent (e.g. a gen-6 grandparent) can make an already-
+    // owned, demand-0 by-product the most probable outcome even though a lower-gen outcome is
+    // the real reason the pair was picked. (A shown cross has score > 0.01, so its driver
+    // always has value > 0.001 — the rationale never names pure dead-weight.)
     const top = s.r.outcomes
       .filter((o) => o.prob > 0.02)
       .slice(0, 4)
       .map((o) => ({ race: o.race, prob: o.prob, gen: o.gen }));
-    const best = top[0];
-    const isNew = best && !obtained.has(best.race);
+    const driver = [...top].sort((a, b) => b.prob * value(b.race) - a.prob * value(a.race))[0];
+    const isNew = driver && !obtained.has(driver.race);
     breed.push({
       aId: s.m.id,
       bId: s.f.id,
@@ -169,11 +178,12 @@ export function recommend(input: RecommendInput): Recommendation {
       bLabel: label(s.f),
       targetGen: s.r.targetGen,
       top,
+      intended: driver?.race ?? top[0]?.race ?? "",
       score: s.score,
       rationale: isNew
-        ? `obtient « ${best.race} » (couleur manquante, gen ${best.gen})`
-        : best
-          ? `pousse vers gen ${best.gen} (${best.race})`
+        ? `obtient « ${driver.race} » (couleur manquante, gen ${driver.gen})`
+        : driver
+          ? `pousse vers gen ${driver.gen} (${driver.race})`
           : "avance la lignée",
     });
   }
