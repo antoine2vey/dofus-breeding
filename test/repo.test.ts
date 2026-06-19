@@ -233,3 +233,25 @@ it.effect("serenity pings on entering the band, not when already inside", () =>
     }),
   ),
 );
+
+it.effect("editing a mount's sex rebuilds its auto-name so it never reads as the wrong sex", () =>
+  provide(
+    Effect.gen(function* () {
+      const repo = yield* Repo;
+      // A captured male, auto-named by the convention (its name carries the `-m-` sex segment).
+      const m = Option.getOrThrow(yield* repo.addDrago({ color: "Pourpre", sex: "M" }));
+      expect(m.name).toBe("p-m");
+
+      // Correct a mis-recorded sex M -> F. The auto-name must follow, not keep the stale `-m-`
+      // (a stale name made an M×F breed pair render as M×M in the assistant).
+      const fixed = Option.getOrThrow(yield* repo.patchDrago(m.id, { sex: "F" }));
+      expect(fixed.sex).toBe("F");
+      expect(fixed.name).toBe("p-f");
+
+      // A user-given custom name is preserved verbatim across a sex edit (not a convention name).
+      const named = Option.getOrThrow(yield* repo.patchDrago(m.id, { name: "Bella" }));
+      const reSexed = Option.getOrThrow(yield* repo.patchDrago(named.id, { sex: "M" }));
+      expect(reSexed.name).toBe("Bella");
+    }),
+  ),
+);
