@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "./api";
+import { api, setUnauthorizedHandler, type Me } from "./api";
 import type { AppState, DragoPatch, EnclosPatch } from "./types";
 import { EnclosWorkspace } from "./components/EnclosWorkspace";
 import { SettingsDialog } from "./components/SettingsDialog";
@@ -12,11 +12,31 @@ import { SuccesTab } from "./components/SuccesTab";
 
 type Tab = "tracker" | "herd" | "assistant" | "succes" | "planner" | "odds" | "naming";
 
+/** Logged-out landing — the only thing reachable without a Better Auth session. */
+function LoginWall() {
+  return (
+    <div className="login-wall">
+      <h1>🐉 Dragodinde Notif</h1>
+      <p>Suis ta reproduction de dragodindes. Connecte-toi avec Discord pour commencer.</p>
+      <button className="discord-btn" onClick={() => api.signInDiscord()}>
+        Se connecter avec Discord
+      </button>
+    </div>
+  );
+}
+
 export default function App() {
   const [state, setState] = useState<AppState | null>(null);
+  const [me, setMe] = useState<Me | null | undefined>(undefined); // undefined = checking
   const [activeId, setActiveId] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("tracker");
+
+  // Resolve auth once on mount; any later 401 (expired session) flips back to the login wall.
+  useEffect(() => {
+    setUnauthorizedHandler(() => setMe(null));
+    api.me().then(setMe).catch(() => setMe(null));
+  }, []);
 
   // Monotonic guard: drop out-of-order /api/state responses so a slow poll can't clobber a fresh
   // optimistic edit (e.g. a Succès toggle) with stale data.
@@ -36,10 +56,11 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!me) return; // only poll once signed in
     refresh();
     const t = setInterval(refresh, 3000);
     return () => clearInterval(t);
-  }, [refresh]);
+  }, [refresh, me]);
 
   const onEnclosPatch = useCallback(
     async (id: number, body: EnclosPatch) => {
@@ -83,6 +104,8 @@ export default function App() {
     [refresh],
   );
 
+  if (me === undefined) return <div className="loading">Loading…</div>;
+  if (me === null) return <LoginWall />;
   if (!state) return <div className="loading">Loading…</div>;
 
   const { enclos, stable, achievements, meta, settings } = state;
@@ -142,6 +165,10 @@ export default function App() {
           </span>
           <button className="ghost" onClick={() => setSettingsOpen(true)}>
             ⚙︎ Discord
+          </button>
+          {me && <span className="pill">{me.name ?? "connecté"}</span>}
+          <button className="ghost" onClick={() => api.signOut()}>
+            Déconnexion
           </button>
         </div>
       </header>

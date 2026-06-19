@@ -20,13 +20,48 @@ export interface RecommendBody {
   freeSlots?: number;
 }
 
+// A 401 from any API call means the session is gone — let the app flip to the login wall.
+let onUnauthorized: () => void = () => {};
+export const setUnauthorizedHandler = (fn: () => void): void => {
+  onUnauthorized = fn;
+};
+
 async function json<T>(res: Response): Promise<T> {
+  if (res.status === 401) {
+    onUnauthorized();
+    throw new Error("unauthenticated");
+  }
   if (res.status >= 500) throw new Error(`HTTP ${res.status}`);
   return res.json() as Promise<T>;
 }
 
+export interface Me {
+  id: string;
+  name?: string;
+  image?: string | null;
+}
+
 export const api = {
   getState: () => fetch("/api/state").then((r) => json<AppState>(r)),
+
+  // ── auth (Better Auth) ──────────────────────────────────────────────
+  /** The current user, or null when signed out (200/401 — never throws to the global handler). */
+  me: (): Promise<Me | null> =>
+    fetch("/api/me").then((r) => (r.ok ? (r.json() as Promise<Me>) : null)),
+  signInDiscord: (): Promise<void> =>
+    fetch("/api/auth/sign-in/social", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: "discord", callbackURL: window.location.origin }),
+    })
+      .then((r) => r.json() as Promise<{ url?: string }>)
+      .then((d) => {
+        if (d.url) window.location.href = d.url;
+      }),
+  signOut: (): Promise<void> =>
+    fetch("/api/auth/sign-out", { method: "POST" }).then(() => {
+      window.location.reload();
+    }),
 
   addEnclos: () =>
     fetch("/api/enclos", { method: "POST" }).then((r) => json<Enclos | { error: string }>(r)),

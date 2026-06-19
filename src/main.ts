@@ -1,10 +1,15 @@
 import "dotenv/config"; // load .env into process.env BEFORE any Config is read
 import "./polyfill.js";
 import { HttpServer } from "@effect/platform";
-import { NodeContext, NodeHttpClient, NodeHttpServer, NodeRuntime } from "@effect/platform-node";
+// Import the specific submodules (not the @effect/platform-node barrel): the barrel re-exports
+// NodeClusterHttp, which needs @effect/cluster — a package we don't use and don't install.
+import * as NodeContext from "@effect/platform-node/NodeContext";
+import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
+import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import { Layer } from "effect";
 import { createServer } from "node:http";
-import { router } from "./Http.js";
+import { router, authGate } from "./Http.js";
 import { Repo } from "./Repo.js";
 import { Discord } from "./Discord.js";
 import { Ai } from "./Ai.js";
@@ -23,7 +28,7 @@ const ServicesLive = Discord.Default.pipe(
 
 const ServerLive = NodeHttpServer.layer(() => createServer(), { port: PORT });
 
-const HttpLive = HttpServer.serve(router).pipe(
+const HttpLive = HttpServer.serve(router, authGate).pipe(
   HttpServer.withLogAddress,
   Layer.provide(ServerLive),
 );

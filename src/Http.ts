@@ -1,10 +1,14 @@
 import {
   FileSystem,
+  HttpMiddleware,
   HttpRouter,
   HttpServerRequest,
   HttpServerResponse,
 } from "@effect/platform";
+import * as NodeHttpServerRequest from "@effect/platform-node/NodeHttpServerRequest";
 import { Config, Effect, Option, Stream } from "effect";
+import { fromNodeHeaders, toNodeHandler } from "better-auth/node";
+import { auth } from "./auth.js";
 import { fileURLToPath } from "node:url";
 import {
   Repo,
@@ -90,6 +94,47 @@ const readBody = HttpServerRequest.HttpServerRequest.pipe(
 
 const idParam = HttpRouter.params.pipe(
   Effect.map((p) => Number(p["id"])),
+);
+
+// ── Better Auth (Discord OAuth + sessions) ───────────────────────────────────
+const baNodeHandler = toNodeHandler(auth);
+
+/** Bridge Better Auth's Node handler into the Effect router by handing it the raw Node req/res.
+ *  Better Auth writes + ends the response itself (incl. its Set-Cookies); Effect's server detects
+ *  the already-ended socket (writableEnded) and won't double-write, so the returned value is moot. */
+const betterAuthApp = Effect.gen(function* () {
+  const req = yield* HttpServerRequest.HttpServerRequest;
+  const nodeReq = NodeHttpServerRequest.toIncomingMessage(req);
+  const nodeRes = NodeHttpServerRequest.toServerResponse(req);
+  yield* Effect.promise(async () => {
+    await baNodeHandler(nodeReq, nodeRes);
+  });
+  return HttpServerResponse.empty();
+});
+
+/** The signed-in user for this request (via the Better Auth session cookie), or None. */
+const sessionUser = Effect.gen(function* () {
+  const req = yield* HttpServerRequest.HttpServerRequest;
+  const nodeReq = NodeHttpServerRequest.toIncomingMessage(req);
+  const session = yield* Effect.tryPromise(() =>
+    auth.api.getSession({ headers: fromNodeHeaders(nodeReq.headers) }),
+  ).pipe(Effect.orElseSucceed(() => null));
+  return Option.fromNullable(session?.user ?? null);
+});
+
+/** Gate every /api/* route (except the /api/auth/* handshake) behind a valid session. */
+export const authGate = HttpMiddleware.make((app) =>
+  Effect.gen(function* () {
+    const req = yield* HttpServerRequest.HttpServerRequest;
+    const path = req.url.split("?")[0];
+    if (path.startsWith("/api/") && !path.startsWith("/api/auth/")) {
+      const user = yield* sessionUser;
+      if (Option.isNone(user)) {
+        return HttpServerResponse.unsafeJson({ error: "unauthenticated" }, { status: 401 });
+      }
+    }
+    return yield* app;
+  }),
 );
 
 // Split across two pipes: HttpRouter.pipe is typed for at most 20 combinators.
@@ -347,7 +392,7 @@ const router1 = HttpRouter.empty.pipe(
   ),
 );
 
-export const router = router1.pipe(
+const router2 = router1.pipe(
   HttpRouter.post(
     "/api/breed",
     Effect.gen(function* () {
@@ -512,6 +557,22 @@ export const router = router1.pipe(
       const colors = Array.isArray(body.colors) ? body.colors.filter((c): c is string => typeof c === "string") : [];
       const saved = yield* repo.setAchievements(colors);
       return HttpServerResponse.unsafeJson({ achievements: saved });
+    }),
+  ),
+);
+
+export const router = router2.pipe(
+  // Better Auth owns everything under /api/auth/* (sign-in, callback, sign-out, get-session).
+  HttpRouter.all("/api/auth/*", betterAuthApp),
+  // Who am I? 401 when no session — the frontend uses this to show the login wall.
+  HttpRouter.get(
+    "/api/me",
+    Effect.gen(function* () {
+      const user = yield* sessionUser;
+      return Option.match(user, {
+        onNone: () => HttpServerResponse.unsafeJson({ error: "unauthenticated" }, { status: 401 }),
+        onSome: (u) => HttpServerResponse.unsafeJson({ id: u.id, name: u.name, image: u.image ?? null }),
+      });
     }),
   ),
 );
