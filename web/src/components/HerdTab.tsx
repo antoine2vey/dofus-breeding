@@ -1,5 +1,5 @@
 import type { NameParts } from '@dd/core'
-import { buildName, COLOR_BY_NAME, COLORS, GEN_COLOR, parseName } from '@dd/core'
+import { COLOR_BY_NAME, COLORS, GEN_COLOR, parseName } from '@dd/core'
 import { useMemo, useState } from 'react'
 import { api } from '../api'
 import type { Dragodinde, Enclos, ImportRow, ReproStatus, Sex } from '../types'
@@ -57,16 +57,6 @@ export function HerdTab({
   const { busy, run } = useMutation(onChanged)
   const patch = (id: number, body: Partial<Dragodinde>) => run(api.patchDragodinde(id, body))
   const move = (id: number, enclosId: number | null) => run(api.moveDragodinde(id, enclosId))
-
-  const suggestName = (m: Mount) =>
-    m.color
-      ? buildName({
-          color: m.color,
-          sex: m.sex,
-          keeper: m.keeper,
-          grandparents: m.grandparents
-        })
-      : ''
 
   // Only FÉCONDE mounts can breed now; FERTILE ones still need their gauges raised.
   const fecondeMounts = mounts.filter((m) => m.status === 'feconde')
@@ -482,14 +472,6 @@ export function HerdTab({
                     value={m.name}
                     onChange={(e) => patch(m.id, { name: e.target.value })}
                   />
-                  <button
-                    className="mini ghost"
-                    title="Nom auto"
-                    disabled={!m.color}
-                    onClick={() => patch(m.id, { name: suggestName(m) })}
-                  >
-                    ✨
-                  </button>
                 </td>
                 <td>
                   <select value={m.color} onChange={(e) => patch(m.id, { color: e.target.value })}>
@@ -568,11 +550,10 @@ export function HerdTab({
       )}
 
       <p className="plan-note muted">
-        L'<b>étable</b> stocke toute ta collection : c'est ici qu'on capture, importe, croise et
-        clone. Les nouveau-nés naissent <b>fertiles</b> dans l'étable ; envoie-les dans un{' '}
-        <b>enclos</b> (colonne Lieu, ou onglet Enclos en glisser-déposer) pour monter leurs jauges
-        jusqu'à <b>féconde</b>, puis reproduis-les. ✨ génère un nom conforme. Marque <b>keeper</b>{' '}
-        l'exemplaire à ne jamais reproduire.
+        L'<b>étable</b> stocke toute ta collection. Importe tes montures par leur nom, puis
+        envoie-les dans un <b>enclos</b> (colonne Lieu, ou onglet Enclos en glisser-déposer) pour
+        monter leurs jauges jusqu'à <b>féconde</b>. Marque <b>keeper</b> l'exemplaire à ne jamais
+        reproduire.
       </p>
     </div>
   )
