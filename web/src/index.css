@@ -153,6 +153,44 @@ body {
   display: flex;
   gap: 8px;
 }
+.onboarding-howto {
+  margin: 0 0 12px;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.ai-prompt {
+  margin-bottom: 18px;
+}
+.ai-prompt textarea {
+  font-size: 12px;
+  resize: vertical;
+  margin: 0;
+}
+.ai-prompt button {
+  margin-top: 4px;
+}
+.onboarding-builder {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.onboarding-builder summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 4px 0;
+}
+.onboarding-builder summary:hover {
+  color: var(--text);
+}
+.onboarding-builder[open] summary {
+  margin-bottom: 8px;
+}
 .muted {
   color: var(--muted);
   font-weight: 400;
@@ -189,6 +227,11 @@ header h1 {
 }
 .pill.bad {
   color: #e8607a;
+}
+.cfg-check {
+  color: var(--accent);
+  font-weight: 700;
+  margin-left: 1px;
 }
 
 button {
@@ -584,7 +627,7 @@ nav.tabs {
   display: flex;
   flex-wrap: wrap;
   gap: 16px 24px;
-  align-items: center;
+  align-items: flex-end;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 10px;

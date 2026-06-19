@@ -30,6 +30,7 @@ export function ImportByName({
   >([])
   const [importMsg, setImportMsg] = useState('')
   const [importEnclos, setImportEnclos] = useState<number | ''>('') // "" = stable
+  const [defaultStatus, setDefaultStatus] = useState<ReproStatus>('fertile')
 
   const { busy, run } = useMutation(onImported)
 
@@ -40,7 +41,7 @@ export function ImportByName({
         .split('\n')
         .map((l) => l.trim())
         .filter(Boolean)
-        .map((line) => ({ line, parts: parseName(line), status: 'fertile' as ReproStatus }))
+        .map((line) => ({ line, parts: parseName(line), status: defaultStatus }))
     )
   }
   const validParsed = parsed.filter((p) => p.parts)
@@ -98,6 +99,23 @@ export function ImportByName({
             {enclos.map((e) => (
               <option key={e.id} value={e.id} disabled={e.dragodindes.length >= 10}>
                 {e.name} ({e.dragodindes.length}/10)
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          État (tous)
+          <select
+            value={defaultStatus}
+            onChange={(e) => {
+              const s = e.target.value as ReproStatus
+              setDefaultStatus(s)
+              setParsed((rows) => rows.map((p) => ({ ...p, status: s })))
+            }}
+          >
+            {STATUS.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
               </option>
             ))}
           </select>

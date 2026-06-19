@@ -30,7 +30,7 @@ export default function App() {
   const [state, setState] = useState<AppState | null>(null)
   const [me, setMe] = useState<Me | null | undefined>(undefined) // undefined = checking
   const [activeId, setActiveId] = useState<number | null>(null)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<'webhook' | 'ai' | null>(null)
   const [tab, setTab] = useState<Tab>('tracker')
   const [wizardOpen, setWizardOpen] = useState(false)
   const onboardChecked = useRef(false)
@@ -180,14 +180,18 @@ export default function App() {
           </button>
         </nav>
         <div className="settings">
-          <span className={'pill ' + (settings.webhookConfigured ? 'ok' : 'bad')}>
-            {settings.webhookConfigured ? 'webhook ✓' : 'webhook ✗'}
-          </span>
           <button className="ghost" title="Tutoriel" onClick={() => setWizardOpen(true)}>
             ?
           </button>
-          <button className="ghost" onClick={() => setSettingsOpen(true)}>
-            ⚙︎ Discord
+          <button
+            className="ghost"
+            title="Webhook Discord"
+            onClick={() => setSettingsSection('webhook')}
+          >
+            🔔 Webhook {settings.webhookConfigured && <span className="cfg-check">✓</span>}
+          </button>
+          <button className="ghost" title="Clé IA (BYOK)" onClick={() => setSettingsSection('ai')}>
+            🤖 IA {settings.aiConfigured && <span className="cfg-check">✓</span>}
           </button>
           {me && <span className="pill">{me.name ?? 'connecté'}</span>}
           <button className="ghost" onClick={() => api.signOut()}>
@@ -237,8 +241,9 @@ export default function App() {
       )}
 
       <SettingsDialog
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
+        open={settingsSection !== null}
+        section={settingsSection ?? 'webhook'}
+        onClose={() => setSettingsSection(null)}
         onConfigured={() => refresh()}
         aiConfigured={settings.aiConfigured}
       />
