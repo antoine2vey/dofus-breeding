@@ -573,7 +573,7 @@ dialog::backdrop {
 dialog h2 {
   margin-top: 0;
 }
-dialog input[type="url"] {
+dialog input {
   width: 100%;
   background: var(--panel2);
   border: 1px solid var(--line);
@@ -582,6 +582,11 @@ dialog input[type="url"] {
   padding: 9px;
   margin: 8px 0;
   font-family: inherit;
+  font-size: 13px;
+}
+dialog input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 .row {
   display: flex;

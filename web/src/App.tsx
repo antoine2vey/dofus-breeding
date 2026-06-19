@@ -246,6 +246,7 @@ export default function App() {
         onClose={() => setSettingsSection(null)}
         onConfigured={() => refresh()}
         aiConfigured={settings.aiConfigured}
+        webhookUrl={settings.webhookUrl}
       />
 
       <OnboardingWizard

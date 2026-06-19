@@ -167,12 +167,13 @@ const router1 = HttpRouter.empty.pipe(
       const achievements = yield* repo.getAchievements
       const webhookConfigured = yield* discord.isConfigured
       const aiConfigured = yield* repo.hasAiKey
+      const webhookUrl = yield* repo.getWebhook // owner's own webhook, for their settings input
       const tickMs = yield* Config.integer('TICK_MS').pipe(Config.withDefault(10000))
       return HttpServerResponse.unsafeJson({
         enclos,
         stable,
         achievements,
-        settings: { webhookConfigured, aiConfigured },
+        settings: { webhookConfigured, aiConfigured, webhookUrl },
         meta: {
           fuelBars: BARS,
           focusable: FOCUSABLE,
