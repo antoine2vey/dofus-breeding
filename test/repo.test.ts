@@ -168,7 +168,9 @@ it.effect("focus is capped to the last 2 (rolling)", () =>
   ),
 );
 
-it.effect("enclos focus applies to every dragodinde for completion, once, grouped", () =>
+const TICK_MS = 10000; // matches the Repo's tick quantum in tests
+
+it.effect("the sweep advances elapsed ticks and groups completions per owning user", () =>
   provide(
     Effect.gen(function* () {
       const repo = yield* Repo;
@@ -177,15 +179,18 @@ it.effect("enclos focus applies to every dragodinde for completion, once, groupe
       yield* addInEnclos(e.id); // 2 dragodindes (enclos starts empty)
       const dragos = (yield* repo.all)[0].dragodindes;
 
-      // focus amour with fuel; both dragodindes just below max -> they cross 20k on the tick
+      // focus amour with fuel; both dragodindes just below max -> they cross 20k on the first tick
       yield* repo.patchEnclos(e.id, { focus: ["amour"], fuel: { amour: 95000 } });
       for (const d of dragos) yield* repo.patchDrago(d.id, { stats: { amour: 19990 } });
 
-      const c1 = yield* repo.tickAll;
-      expect(c1.length).toBe(2); // both complete in the same tick -> grouped
-      expect(c1[0].focus).toEqual(["amour"]);
-      const c2 = yield* repo.tickAll;
-      expect(c2.length).toBe(0);
+      const base = Date.now();
+      const g1 = yield* repo.sweep(base + 5 * TICK_MS); // ~5 ticks of elapsed time
+      expect(g1.length).toBe(1); // one user
+      expect(g1[0].userId).toBe("u-test");
+      expect(g1[0].items.length).toBe(2); // both crossed 20K, grouped
+      expect(g1[0].items[0].focus).toEqual(["amour"]);
+      const g2 = yield* repo.sweep(base + 10 * TICK_MS); // nothing new
+      expect(g2.length).toBe(0);
     }),
   ),
 );
@@ -198,7 +203,8 @@ it.effect("changing enclos focus re-arms a dragodinde that no longer qualifies",
       const d = yield* addInEnclos(e.id);
       yield* repo.patchEnclos(e.id, { focus: ["amour"], fuel: { amour: 95000 } });
       yield* repo.patchDrago(d.id, { stats: { amour: 19990 } });
-      expect((yield* repo.tickAll).length).toBe(1); // crosses 20k on the tick -> completes
+      const g = yield* repo.sweep(Date.now() + 5 * TICK_MS);
+      expect(g[0]?.items.length).toBe(1); // crosses 20k -> completes
       // now require maturite too -> dragodinde no longer done -> re-armed
       yield* repo.patchEnclos(e.id, { focus: ["amour", "maturite"] });
       const after = (yield* repo.all)[0].dragodindes[0];
@@ -285,9 +291,9 @@ it.effect("serenity pings on entering the band, not when already inside", () =>
       yield* repo.patchDrago(a.id, { stats: { serenity: 0 } }); // inside band -> no ping
       yield* repo.patchDrago(b.id, { stats: { serenity: -230 } }); // outside -> will enter & ping
 
-      const c = yield* repo.tickAll; // b: -230 -> -190 enters band -> ping
-      expect(c.length).toBe(1);
-      expect(c[0].dragodinde.id).toBe(b.id);
+      const g = yield* repo.sweep(Date.now() + 5 * TICK_MS); // b: -230 -> enters band -> ping
+      expect(g[0]?.items.length).toBe(1);
+      expect(g[0].items[0].dragodinde.id).toBe(b.id);
       // both now inside the band -> serenityPlus auto-unchecked (front & back)
       expect((yield* repo.all)[0].focus).toEqual([]);
     }),

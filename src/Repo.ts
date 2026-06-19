@@ -26,7 +26,7 @@ import {
   emptyFuel,
   focusAllMaxed,
   reproStatus,
-  tickEnclos,
+  advanceEnclos,
 } from "./domain.js";
 
 interface EnclosRow {
@@ -38,6 +38,8 @@ interface EnclosRow {
   readonly fuel_maturite: number;
   readonly fuel_amour: number;
   readonly focus: string;
+  readonly ticked_at: number; // wall-clock ms of the last persisted tick (elapsed-time model)
+  readonly user_id: string | null;
 }
 
 interface DragoRow {
@@ -150,6 +152,12 @@ export interface CompletedItem {
   readonly dragodinde: Dragodinde;
 }
 
+/** A sweep's completions for one user — routed to that user's own webhook. */
+export interface SweepGroup {
+  readonly userId: string;
+  readonly items: ReadonlyArray<CompletedItem>;
+}
+
 // Keep only valid focus keys, capped to the last MAX_FOCUS (rolling: newest win).
 const sanitizeFocus = (input: ReadonlyArray<string>): ReadonlyArray<FocusKey> => {
   const valid = input.filter((f): f is FocusKey => (FOCUSABLE as ReadonlyArray<string>).includes(f));
@@ -166,6 +174,10 @@ const withDoneState = (d: Dragodinde, focus: ReadonlyArray<FocusKey>): Dragodind
 
 const changed = (a: unknown, b: unknown): boolean => JSON.stringify(a) !== JSON.stringify(b);
 
+/** One in-game tick = 10s (override with TICK_MS). The elapsed-time model quantizes wall-clock
+ *  time into this many-ms ticks. */
+const TICK_MS = Number(process.env.TICK_MS) || 10000;
+
 export class Repo extends Effect.Service<Repo>()("app/Repo", {
   effect: Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -179,7 +191,8 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
         fuel_endurance INTEGER NOT NULL DEFAULT 0,
         fuel_maturite INTEGER NOT NULL DEFAULT 0,
         fuel_amour INTEGER NOT NULL DEFAULT 0,
-        focus TEXT NOT NULL DEFAULT '["endurance","amour"]'
+        focus TEXT NOT NULL DEFAULT '["endurance","amour"]',
+        ticked_at INTEGER NOT NULL DEFAULT 0
       )
     `;
     yield* sql`
@@ -288,6 +301,11 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
     if (!haveCol.has("user_id")) yield* sql.unsafe(`ALTER TABLE dragodinde ADD COLUMN user_id TEXT`);
     yield* sql`CREATE INDEX IF NOT EXISTS idx_enclos_user ON enclos(user_id)`;
     yield* sql`CREATE INDEX IF NOT EXISTS idx_dragodinde_user ON dragodinde(user_id)`;
+    // Elapsed-time model (#6): per-enclos last-tick timestamp. Existing enclos start "now" so they
+    // don't replay history on the first sweep.
+    if (!enclosCols.some((c) => c.name === "ticked_at"))
+      yield* sql.unsafe(`ALTER TABLE enclos ADD COLUMN ticked_at INTEGER NOT NULL DEFAULT 0`);
+    yield* sql`UPDATE enclos SET ticked_at = ${Date.now()} WHERE ticked_at = 0`;
     // Rebuild an old single-PK achievement (color only) into the composite (user_id, color) form.
     const achCols = yield* sql<{ name: string }>`SELECT name FROM pragma_table_info('achievement')`;
     if (!achCols.some((c) => c.name === "user_id")) {
@@ -396,15 +414,20 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
           list.push(dragoFromRow(r));
           byEnclos.set(r.enclos_id, list);
         }
-        return enclosRows.map(
-          (r): Enclos => ({
+        const now = Date.now();
+        return enclosRows.map((r): Enclos => {
+          const e: Enclos = {
             id: r.id,
             name: r.name,
             fuel: fuelFromRow(r),
             focus: sanitizeFocus(JSON.parse(r.focus) as ReadonlyArray<string>),
             dragodindes: byEnclos.get(r.id) ?? [],
-          }),
-        );
+          };
+          // Project forward by the ticks elapsed since the last persisted tick — WITHOUT writing.
+          // The sweep is what persists; reads just show the up-to-date state.
+          const nTicks = Math.floor((now - (r.ticked_at ?? now)) / TICK_MS);
+          return nTicks > 0 ? advanceEnclos(e, nTicks).enclos : e;
+        });
       });
 
     const all = Effect.gen(function* () {
@@ -417,8 +440,6 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
       }
       return list;
     });
-    /** All enclos for everyone — the system (ticker) view, no user scoping. */
-    const allSystem = loadEnclos(null);
 
     /** The stable: this user's mounts not currently placed in an enclos. */
     const stable = Effect.gen(function* () {
@@ -454,7 +475,7 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
       const uid = yield* requireUserId;
       if ((yield* countEnclos) >= MAX_ENCLOS) return Option.none<Enclos>();
       const rows = yield* sql<{ id: number }>`
-        INSERT INTO enclos (name, user_id) VALUES (${"Enclosure"}, ${uid}) RETURNING id
+        INSERT INTO enclos (name, user_id, ticked_at) VALUES (${"Enclosure"}, ${uid}, ${Date.now()}) RETURNING id
       `;
       const id = rows[0].id;
       yield* sql`UPDATE enclos SET name = ${`Enclosure ${id}`} WHERE id = ${id}`;
@@ -777,30 +798,55 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
         }),
       );
 
-    /** Advance every enclos one tick (all users — a system actor); return what just completed. */
-    const tickAll = sql.withTransaction(
-      Effect.gen(function* () {
-        const list = yield* allSystem;
-        const completed: Array<CompletedItem> = [];
-        for (const e of list) {
-          const result = tickEnclos(e);
-          if (changed(result.enclos.fuel, e.fuel) || changed(result.enclos.focus, e.focus)) {
-            yield* writeEnclos(result.enclos);
+    /** The notification sweep (system actor): advance every enclos by the ticks elapsed since its
+     *  last persisted tick, PERSIST the change + bump ticked_at, and collect the rising-edge
+     *  completions grouped by owning user. Idle enclos (no fuel/no elapsed) incur no writes.
+     *  `nowMs` is injectable for tests. */
+    const sweep = (nowMs: number = Date.now()) =>
+      sql.withTransaction(
+        Effect.gen(function* () {
+          const rows = yield* sql<EnclosRow>`SELECT * FROM enclos ORDER BY id`;
+          const byUser = new Map<string, CompletedItem[]>();
+          for (const r of rows) {
+            const nTicks = Math.floor((nowMs - (r.ticked_at ?? nowMs)) / TICK_MS);
+            if (nTicks <= 0) continue;
+            const dragos = yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE enclos_id = ${r.id} ORDER BY id`;
+            const e: Enclos = {
+              id: r.id,
+              name: r.name,
+              fuel: fuelFromRow(r),
+              focus: sanitizeFocus(JSON.parse(r.focus) as ReadonlyArray<string>),
+              dragodindes: dragos.map(dragoFromRow),
+            };
+            const result = advanceEnclos(e, nTicks);
+            const enclosChanged = changed(result.enclos.fuel, e.fuel) || changed(result.enclos.focus, e.focus);
+            const dragoChanged = result.enclos.dragodindes.some((d, i) => changed(e.dragodindes[i], d));
+            if (!enclosChanged && !dragoChanged) continue; // idle — no write
+            if (enclosChanged) yield* writeEnclos(result.enclos);
+            for (let i = 0; i < result.enclos.dragodindes.length; i++) {
+              const after = result.enclos.dragodindes[i];
+              if (changed(e.dragodindes[i], after)) yield* writeDrago(after);
+            }
+            yield* sql`UPDATE enclos SET ticked_at = ${nowMs} WHERE id = ${r.id}`;
+            const uid = r.user_id;
+            if (uid && (result.completed.length || result.becameFeconde.length)) {
+              const items = byUser.get(uid) ?? [];
+              for (const d of result.completed)
+                items.push({ kind: "focus", enclosName: e.name, focus: e.focus, dragodinde: d });
+              for (const d of result.becameFeconde)
+                items.push({ kind: "feconde", enclosName: e.name, focus: e.focus, dragodinde: d });
+              byUser.set(uid, items);
+            }
           }
-          for (let i = 0; i < result.enclos.dragodindes.length; i++) {
-            const after = result.enclos.dragodindes[i];
-            if (changed(e.dragodindes[i], after)) yield* writeDrago(after);
-          }
-          for (const d of result.completed) {
-            completed.push({ kind: "focus", enclosName: e.name, focus: e.focus, dragodinde: d });
-          }
-          for (const d of result.becameFeconde) {
-            completed.push({ kind: "feconde", enclosName: e.name, focus: e.focus, dragodinde: d });
-          }
-        }
-        return completed;
-      }),
-    );
+          return [...byUser.entries()].map(([userId, items]): SweepGroup => ({ userId, items }));
+        }),
+      );
+
+    /** A user's Discord webhook, looked up directly (system context — no FiberRef). '' if unset. */
+    const webhookFor = (userId: string) =>
+      sql<{ webhook_url: string }>`SELECT webhook_url FROM user_settings WHERE user_id = ${userId}`.pipe(
+        Effect.map((rows) => rows[0]?.webhook_url ?? ""),
+      );
 
     /** The current user's Discord webhook ('' when unset, or in the system/ticker context — which
      *  has no user; the Discord service then falls back to the legacy DISCORD_WEBHOOK_URL env). */
@@ -902,7 +948,8 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
       removeMany,
       removeDrago,
       patchDrago,
-      tickAll,
+      sweep,
+      webhookFor,
       getWebhook,
       setWebhook,
       getAiKey,

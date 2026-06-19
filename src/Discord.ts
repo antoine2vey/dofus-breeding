@@ -29,16 +29,14 @@ export class Discord extends Effect.Service<Discord>()("app/Discord", {
 
     const isConfigured = resolveUrl.pipe(Effect.map((u) => u.length > 0));
 
-    const send = (content: string, embeds?: ReadonlyArray<DiscordEmbed>): Effect.Effect<SendResult> =>
+    /** POST a message to an explicit webhook URL ('' → skip). */
+    const post = (url: string, content: string, embeds?: ReadonlyArray<DiscordEmbed>): Effect.Effect<SendResult> =>
       Effect.gen(function* () {
-        const url = yield* resolveUrl;
         if (!url) {
           yield* Effect.logWarning("No Discord webhook configured — skipping notification.");
           return { ok: false, reason: "no-webhook" } satisfies SendResult;
         }
-        const req = yield* HttpClientRequest.post(url).pipe(
-          HttpClientRequest.bodyJson({ content, embeds }),
-        );
+        const req = yield* HttpClientRequest.post(url).pipe(HttpClientRequest.bodyJson({ content, embeds }));
         const res = yield* client.execute(req);
         if (res.status >= 200 && res.status < 300) return { ok: true } satisfies SendResult;
         return { ok: false, reason: `http-${res.status}` } satisfies SendResult;
@@ -51,31 +49,32 @@ export class Discord extends Effect.Service<Discord>()("app/Discord", {
         ),
       );
 
-    /** One message for all dragodindes that completed in the same tick. */
-    const notifyCompleted = (items: ReadonlyArray<CompletedItem>) =>
+    /** Send to the current user's webhook (or env fallback) — used by /api/test-notify. */
+    const send = (content: string, embeds?: ReadonlyArray<DiscordEmbed>): Effect.Effect<SendResult> =>
+      resolveUrl.pipe(
+        Effect.flatMap((url) => post(url, content, embeds)),
+        Effect.catchAll(() => Effect.succeed({ ok: false, reason: "no-webhook" } satisfies SendResult)),
+      );
+
+    const completedEmbed = (items: ReadonlyArray<CompletedItem>) => {
+      const lines = items.map((it) =>
+        it.kind === "feconde"
+          ? `• 💗 **${it.dragodinde.name}** _(${it.enclosName})_ — féconde, prête à reproduire !`
+          : `• **${it.dragodinde.name}** _(${it.enclosName})_ — ${it.focus.map(labelFor).join(" + ") || "—"} maxed`,
+      );
+      const content = items.length === 1 ? `🐉 A dragodinde is ready!` : `🐉 ${items.length} dragodindes are ready!`;
+      return { content, embeds: [{ title: "Breeding complete", color: 0x57f287, description: lines.join("\n") }] };
+    };
+
+    /** One grouped message for a user's completions, to THEIR webhook — used by the sweep. */
+    const notifyCompletedTo = (url: string, items: ReadonlyArray<CompletedItem>) =>
       Effect.gen(function* () {
-        if (items.length === 0) return;
-        const lines = items.map((it) => {
-          if (it.kind === "feconde") {
-            return `• 💗 **${it.dragodinde.name}** _(${it.enclosName})_ — féconde, prête à reproduire !`;
-          }
-          const focus = it.focus.map(labelFor).join(" + ") || "—";
-          return `• **${it.dragodinde.name}** _(${it.enclosName})_ — ${focus} maxed`;
-        });
-        const content =
-          items.length === 1
-            ? `🐉 A dragodinde is ready!`
-            : `🐉 ${items.length} dragodindes are ready!`;
+        if (items.length === 0 || !url) return;
+        const { content, embeds } = completedEmbed(items);
         yield* Effect.logInfo(`${content} ${items.map((i) => i.dragodinde.name).join(", ")}`);
-        yield* send(content, [
-          {
-            title: "Breeding complete",
-            color: 0x57f287,
-            description: lines.join("\n"),
-          },
-        ]);
+        yield* post(url, content, embeds);
       });
 
-    return { send, notifyCompleted, isConfigured } as const;
+    return { send, notifyCompletedTo, isConfigured } as const;
   }),
 }) {}

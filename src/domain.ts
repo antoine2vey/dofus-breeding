@@ -193,3 +193,24 @@ export const tickEnclos = (
 
   return { enclos: { ...e, fuel, dragodindes, focus }, completed, becameFeconde };
 };
+
+/** Advance an enclos by up to `nTicks` ticks of elapsed time, stopping early the moment it goes
+ *  idle (no fuel drained = nothing more will change). Accumulates the rising-edge completions
+ *  across the whole span, so a mount that crosses 20K mid-span is reported exactly once. Pure —
+ *  used both to project state forward on read and to advance+persist in the notification sweep. */
+export const advanceEnclos = (
+  e: Enclos,
+  nTicks: number,
+): { enclos: Enclos; completed: ReadonlyArray<Dragodinde>; becameFeconde: ReadonlyArray<Dragodinde> } => {
+  let cur = e;
+  const completed: Dragodinde[] = [];
+  const becameFeconde: Dragodinde[] = [];
+  for (let i = 0; i < nTicks; i++) {
+    const r = tickEnclos(cur);
+    if (FUEL_KEYS.every((k) => r.enclos.fuel[k] === cur.fuel[k])) break; // no drain → idle, stop
+    completed.push(...r.completed);
+    becameFeconde.push(...r.becameFeconde);
+    cur = r.enclos;
+  }
+  return { enclos: cur, completed, becameFeconde };
+};
