@@ -294,296 +294,310 @@ export function AssistantTab({
     <div className="pane planner assistant-v2">
       <div className="pane-head">
         <h2>🤖 Assistant</h2>
-        <span className="muted">plan déterministe + contremaître IA</span>
       </div>
 
-      {/* Controls */}
-      <div className="plan-controls">
-        <label>
-          Objectif
-          <select value={targetGen} onChange={(e) => setTargetGen(Number(e.target.value))}>
-            {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((g) => (
-              <option key={g} value={g}>
-                Atteindre Gen {g}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Niveau
-          <input
-            type="number"
-            min={1}
-            max={200}
-            value={level}
-            onChange={(e) =>
-              setLevel(Math.min(200, Math.max(1, Math.floor(Number(e.target.value) || 1))))
-            }
-          />
-        </label>
-        <label className="chk">
-          <input
-            type="checkbox"
-            checked={optimakina}
-            onChange={(e) => setOptimakina(e.target.checked)}
-          />{' '}
-          Optimakina
-        </label>
-        <label className="chk">
-          <input type="checkbox" checked={clonage} onChange={(e) => setClonage(e.target.checked)} />{' '}
-          Clonage
-        </label>
-        <button className="ghost" disabled={busy} onClick={refetchPlan}>
-          {busy ? 'calcul…' : '↻ Recalculer'}
-        </button>
-      </div>
-
-      {planErr && <div className="decode-err">✗ {planErr}</div>}
-
-      {/* Live context bar */}
-      <div className="ctx-bar">
-        <div className="ctx-block">
-          <div className="ctx-label">
-            🏠 Étable <span className="muted">({stable.length})</span>
-          </div>
-          <div className="ctx-pills">
-            <span className="pill ok">{stableByStatus('feconde')} féconde</span>
-            <span className="pill">{stableByStatus('fertile')} fertile</span>
-            <span className="pill bad">{stableByStatus('sterile')} stérile</span>
-          </div>
-        </div>
-        <div className="ctx-block">
-          <div className="ctx-label">Enclos</div>
-          <div className="ctx-pills">
-            {enclos.map((e) => (
-              <span
-                key={e.id}
-                className={
-                  'pill' +
-                  (e.dragodindes.length >= 10 ? ' bad' : e.dragodindes.length === 0 ? ' ok' : '')
+      <div className="assistant-split">
+        <div className="assistant-main">
+          {/* Controls */}
+          <div className="plan-controls">
+            <label>
+              Objectif
+              <select value={targetGen} onChange={(e) => setTargetGen(Number(e.target.value))}>
+                {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((g) => (
+                  <option key={g} value={g}>
+                    Atteindre Gen {g}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Niveau
+              <input
+                type="number"
+                min={1}
+                max={200}
+                value={level}
+                onChange={(e) =>
+                  setLevel(Math.min(200, Math.max(1, Math.floor(Number(e.target.value) || 1))))
                 }
-                title={
-                  e.dragodindes.map((d) => `${d.name} (${STATUS_LABEL[d.status]})`).join(', ') ||
-                  'vide'
-                }
-              >
-                {e.name}: {e.dragodindes.length}/10
-              </span>
-            ))}
+              />
+            </label>
+            <label className="chk">
+              <input
+                type="checkbox"
+                checked={optimakina}
+                onChange={(e) => setOptimakina(e.target.checked)}
+              />{' '}
+              Optimakina
+            </label>
+            <label className="chk">
+              <input
+                type="checkbox"
+                checked={clonage}
+                onChange={(e) => setClonage(e.target.checked)}
+              />{' '}
+              Clonage
+            </label>
+            <button className="ghost" disabled={busy} onClick={refetchPlan}>
+              {busy ? 'calcul…' : '↻ Recalculer'}
+            </button>
           </div>
+
+          {planErr && <div className="decode-err">✗ {planErr}</div>}
+
+          {/* Live context bar */}
+          <div className="ctx-bar">
+            <div className="ctx-block">
+              <div className="ctx-label">
+                🏠 Étable <span className="muted">({stable.length})</span>
+              </div>
+              <div className="ctx-pills">
+                <span className="pill ok">{stableByStatus('feconde')} féconde</span>
+                <span className="pill">{stableByStatus('fertile')} fertile</span>
+                <span className="pill bad">{stableByStatus('sterile')} stérile</span>
+              </div>
+            </div>
+            <div className="ctx-block">
+              <div className="ctx-label">Enclos</div>
+              <div className="ctx-pills">
+                {enclos.map((e) => (
+                  <span
+                    key={e.id}
+                    className={
+                      'pill' +
+                      (e.dragodindes.length >= 10
+                        ? ' bad'
+                        : e.dragodindes.length === 0
+                          ? ' ok'
+                          : '')
+                    }
+                    title={
+                      e.dragodindes
+                        .map((d) => `${d.name} (${STATUS_LABEL[d.status]})`)
+                        .join(', ') || 'vide'
+                    }
+                  >
+                    {e.name}: {e.dragodindes.length}/10
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {plan && (
+            <>
+              {/* Progress cards */}
+              <div className="plan-cards">
+                <div className="card big">
+                  <div className="card-label">Couleurs obtenues (gen {plan.roadmap.targetGen})</div>
+                  <div className="card-value">
+                    {plan.roadmap.obtainedColors}/{plan.roadmap.totalColors}
+                  </div>
+                  <div className="card-sub">
+                    <span>{plan.roadmap.reached ? 'objectif atteint 🎉' : ns?.summary}</span>
+                  </div>
+                </div>
+                <div className="card">
+                  <div className="card-label">Captures restantes</div>
+                  <div className="card-value">
+                    {Object.values(plan.roadmap.baseCaptures).reduce((a, b) => a + b, 0)}
+                  </div>
+                </div>
+                <div className="card">
+                  <div className="card-label">Croisements restants</div>
+                  <div className="card-value">{plan.roadmap.totalCrosses}</div>
+                </div>
+              </div>
+
+              {/* ── Layer B: next step ── */}
+              <div className="policy-head">
+                <span>▶ Prochaine étape</span>
+                <span className="muted">{ns?.summary}</span>
+              </div>
+              {ns &&
+                !ns.done &&
+                ns.raise.length + ns.breed.length + ns.clone.length + ns.capture.length === 0 && (
+                  <div className="muted small">
+                    Rien à appliquer directement — capture des bases ou monte des montures.
+                  </div>
+                )}
+
+              {ns && ns.raise.length > 0 && (
+                <div className="step-group">
+                  <div className="step-title">
+                    ⬆ Élever vers féconde <span className="muted small">déplacement auto</span>
+                  </div>
+                  {ns.raise.map((a) => (
+                    <div className="step-row" key={a.enclosId}>
+                      <span className="sr-main">
+                        {a.enclosName} <span className="muted small">({a.mountIds.length})</span>
+                      </span>
+                      <span className="sr-odds small">
+                        {a.mountIds.map(nm).sort(inGameCompare).join(', ')}
+                      </span>
+                      <span className="sr-act">
+                        <button className="mini" disabled={busy} onClick={() => applyRaise(a)}>
+                          → déplacer
+                        </button>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {ns && ns.breed.length > 0 && (
+                <div className="step-group">
+                  <div className="step-title">
+                    ⚥ Croiser (féconde){' '}
+                    <span className="muted small">choisis la couleur réellement obtenue</span>
+                  </div>
+                  {ns.breed.map((a) => (
+                    <BreedRow
+                      key={`${a.aId}-${a.bId}`}
+                      a={a}
+                      busy={busy}
+                      onApply={(c, s) => applyBreed(a, c, s)}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {ns && ns.clone.length > 0 && (
+                <div className="step-group">
+                  <div className="step-title">♻ Cloner (stériles)</div>
+                  {ns.clone.map((a) => (
+                    <CloneRow
+                      key={`${a.aId}-${a.bId}`}
+                      a={a}
+                      names={[nm(a.aId), nm(a.bId)]}
+                      busy={busy}
+                      onApply={(s) => applyClone(a, s)}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {ns && ns.capture.length > 0 && (
+                <div className="step-group">
+                  <div className="step-title">🎯 Capturer (Gen 1)</div>
+                  {ns.capture.map((need) => (
+                    <CaptureRow
+                      key={need.color}
+                      need={need}
+                      busy={busy}
+                      onApply={(c, s) => applyCapture(need, c, s)}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* ── Layer A: roadmap ── */}
+              <div className="policy-head" style={{ marginTop: 16 }}>
+                <span>🗺 Feuille de route</span>
+                <span className="muted">
+                  besoins restants, du bas vers la gen {plan.roadmap.targetGen}
+                </span>
+              </div>
+              {plan.roadmap.gens.map((g) => {
+                const open = openGens.has(g.gen)
+                const remaining = g.rows.reduce((n, r) => n + r.need, 0)
+                return (
+                  <div className="roadmap-gen" key={g.gen}>
+                    <button className="rg-head" onClick={() => toggleGen(g.gen)}>
+                      <span style={{ color: GEN_COLOR[g.gen], fontWeight: 700 }}>
+                        {open ? '▾' : '▸'} Gen {g.gen}
+                      </span>
+                      <span className="muted small">
+                        {g.rows.length} couleur(s) · {remaining} à produire
+                      </span>
+                    </button>
+                    {open && (
+                      <table className="roadmap-table">
+                        <tbody>
+                          {g.rows.map((r) => {
+                            const total = r.owned + r.need
+                            const frac = total > 0 ? r.owned / total : 1
+                            return (
+                              <tr key={r.color}>
+                                <td style={{ color: GEN_COLOR[r.gen] }}>
+                                  {r.done ? '🏆 ' : ''}
+                                  {r.color}
+                                </td>
+                                <td className="rm-recipe muted small">
+                                  {r.recipe ? r.recipe.join(' + ') : 'capture'}
+                                  {r.done && r.need > 0 ? ' · succès, mais parent requis' : ''}
+                                </td>
+                                <td className="rm-prog">
+                                  {r.done && r.need === 0 ? (
+                                    <span className="muted small">succès ✓</span>
+                                  ) : (
+                                    <div className="hmeter">
+                                      <div
+                                        className="hfill"
+                                        style={{
+                                          width: `${frac * 100}%`,
+                                          background: GEN_COLOR[r.gen]
+                                        }}
+                                      />
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="rm-count">
+                                  {r.done && r.need === 0 ? '—' : `${r.owned}/${total}`}
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                )
+              })}
+            </>
+          )}
         </div>
-      </div>
 
-      {plan && (
-        <>
-          {/* Progress cards */}
-          <div className="plan-cards">
-            <div className="card big">
-              <div className="card-label">Couleurs obtenues (gen {plan.roadmap.targetGen})</div>
-              <div className="card-value">
-                {plan.roadmap.obtainedColors}/{plan.roadmap.totalColors}
-              </div>
-              <div className="card-sub">
-                <span>{plan.roadmap.reached ? 'objectif atteint 🎉' : ns?.summary}</span>
-              </div>
-            </div>
-            <div className="card">
-              <div className="card-label">Captures restantes</div>
-              <div className="card-value">
-                {Object.values(plan.roadmap.baseCaptures).reduce((a, b) => a + b, 0)}
-              </div>
-            </div>
-            <div className="card">
-              <div className="card-label">Croisements restants</div>
-              <div className="card-value">{plan.roadmap.totalCrosses}</div>
-            </div>
-          </div>
-
-          {/* ── Layer B: next step ── */}
+        <aside className="assistant-chat">
+          {/* Chat side-channel */}
           <div className="policy-head">
-            <span>▶ Prochaine étape</span>
-            <span className="muted">{ns?.summary}</span>
+            <span>💬 Contremaître IA</span>
+            <span className="muted">
+              demande, ajuste, ou laisse-le agir (« croise 3 et 4 », « j'ai capturé 5 Amande »)
+            </span>
           </div>
-          {ns &&
-            !ns.done &&
-            ns.raise.length + ns.breed.length + ns.clone.length + ns.capture.length === 0 && (
+          <div className="chat-log">
+            {chat.length === 0 && (
               <div className="muted small">
-                Rien à appliquer directement — capture des bases ou monte des montures.
+                Ex. « Que faire en priorité ? », « Mets mes Amande fertiles en enclos 2 », « J'ai
+                capturé 4 Rousse ».
               </div>
             )}
-
-          {ns && ns.raise.length > 0 && (
-            <div className="step-group">
-              <div className="step-title">
-                ⬆ Élever vers féconde <span className="muted small">déplacement auto</span>
+            {chat.map((m, i) => (
+              <div key={i} className={'chat-msg ' + m.role}>
+                <span className="chat-who">{m.role === 'user' ? 'toi' : '🤖'}</span>
+                <span className="chat-text">
+                  {m.content || (streaming && i === chat.length - 1 ? '…' : '')}
+                </span>
               </div>
-              {ns.raise.map((a) => (
-                <div className="step-row" key={a.enclosId}>
-                  <span className="sr-main">
-                    {a.enclosName} <span className="muted small">({a.mountIds.length})</span>
-                  </span>
-                  <span className="sr-odds small">
-                    {a.mountIds.map(nm).sort(inGameCompare).join(', ')}
-                  </span>
-                  <span className="sr-act">
-                    <button className="mini" disabled={busy} onClick={() => applyRaise(a)}>
-                      → déplacer
-                    </button>
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {ns && ns.breed.length > 0 && (
-            <div className="step-group">
-              <div className="step-title">
-                ⚥ Croiser (féconde){' '}
-                <span className="muted small">choisis la couleur réellement obtenue</span>
-              </div>
-              {ns.breed.map((a) => (
-                <BreedRow
-                  key={`${a.aId}-${a.bId}`}
-                  a={a}
-                  busy={busy}
-                  onApply={(c, s) => applyBreed(a, c, s)}
-                />
-              ))}
-            </div>
-          )}
-
-          {ns && ns.clone.length > 0 && (
-            <div className="step-group">
-              <div className="step-title">♻ Cloner (stériles)</div>
-              {ns.clone.map((a) => (
-                <CloneRow
-                  key={`${a.aId}-${a.bId}`}
-                  a={a}
-                  names={[nm(a.aId), nm(a.bId)]}
-                  busy={busy}
-                  onApply={(s) => applyClone(a, s)}
-                />
-              ))}
-            </div>
-          )}
-
-          {ns && ns.capture.length > 0 && (
-            <div className="step-group">
-              <div className="step-title">🎯 Capturer (Gen 1)</div>
-              {ns.capture.map((need) => (
-                <CaptureRow
-                  key={need.color}
-                  need={need}
-                  busy={busy}
-                  onApply={(c, s) => applyCapture(need, c, s)}
-                />
-              ))}
-            </div>
-          )}
-
-          {/* ── Layer A: roadmap ── */}
-          <div className="policy-head" style={{ marginTop: 16 }}>
-            <span>🗺 Feuille de route</span>
-            <span className="muted">
-              besoins restants, du bas vers la gen {plan.roadmap.targetGen}
-            </span>
+            ))}
           </div>
-          {plan.roadmap.gens.map((g) => {
-            const open = openGens.has(g.gen)
-            const remaining = g.rows.reduce((n, r) => n + r.need, 0)
-            return (
-              <div className="roadmap-gen" key={g.gen}>
-                <button className="rg-head" onClick={() => toggleGen(g.gen)}>
-                  <span style={{ color: GEN_COLOR[g.gen], fontWeight: 700 }}>
-                    {open ? '▾' : '▸'} Gen {g.gen}
-                  </span>
-                  <span className="muted small">
-                    {g.rows.length} couleur(s) · {remaining} à produire
-                  </span>
-                </button>
-                {open && (
-                  <table className="roadmap-table">
-                    <tbody>
-                      {g.rows.map((r) => {
-                        const total = r.owned + r.need
-                        const frac = total > 0 ? r.owned / total : 1
-                        return (
-                          <tr key={r.color}>
-                            <td style={{ color: GEN_COLOR[r.gen] }}>
-                              {r.done ? '🏆 ' : ''}
-                              {r.color}
-                            </td>
-                            <td className="rm-recipe muted small">
-                              {r.recipe ? r.recipe.join(' + ') : 'capture'}
-                              {r.done && r.need > 0 ? ' · succès, mais parent requis' : ''}
-                            </td>
-                            <td className="rm-prog">
-                              {r.done && r.need === 0 ? (
-                                <span className="muted small">succès ✓</span>
-                              ) : (
-                                <div className="hmeter">
-                                  <div
-                                    className="hfill"
-                                    style={{
-                                      width: `${frac * 100}%`,
-                                      background: GEN_COLOR[r.gen]
-                                    }}
-                                  />
-                                </div>
-                              )}
-                            </td>
-                            <td className="rm-count">
-                              {r.done && r.need === 0 ? '—' : `${r.owned}/${total}`}
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            )
-          })}
-        </>
-      )}
-
-      {/* Chat side-channel */}
-      <div className="policy-head" style={{ marginTop: 18 }}>
-        <span>💬 Contremaître IA</span>
-        <span className="muted">
-          demande, ajuste, ou laisse-le agir (« croise 3 et 4 », « j'ai capturé 5 Amande »)
-        </span>
-      </div>
-      <div className="chat-log">
-        {chat.length === 0 && (
-          <div className="muted small">
-            Ex. « Que faire en priorité ? », « Mets mes Amande fertiles en enclos 2 », « J'ai
-            capturé 4 Rousse ».
+          <div className="chat-input">
+            <input
+              type="text"
+              value={input}
+              placeholder="Pose ta question ou donne un ordre…"
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') sendChat()
+              }}
+              disabled={streaming}
+            />
+            <button onClick={sendChat} disabled={streaming || !input.trim()}>
+              {streaming ? '…' : 'Envoyer'}
+            </button>
           </div>
-        )}
-        {chat.map((m, i) => (
-          <div key={i} className={'chat-msg ' + m.role}>
-            <span className="chat-who">{m.role === 'user' ? 'toi' : '🤖'}</span>
-            <span className="chat-text">
-              {m.content || (streaming && i === chat.length - 1 ? '…' : '')}
-            </span>
-          </div>
-        ))}
-      </div>
-      <div className="chat-input">
-        <input
-          type="text"
-          value={input}
-          placeholder="Pose ta question ou donne un ordre…"
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') sendChat()
-          }}
-          disabled={streaming}
-        />
-        <button onClick={sendChat} disabled={streaming || !input.trim()}>
-          {streaming ? '…' : 'Envoyer'}
-        </button>
+        </aside>
       </div>
 
       <p className="plan-note muted">

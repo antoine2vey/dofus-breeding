@@ -1471,6 +1471,36 @@ button.mini.danger {
 }
 
 /* Assistant chat */
+/* Assistant: 70% plan / 30% chat side-panel */
+.assistant-split {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+}
+.assistant-main {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.assistant-chat {
+  flex: 0 0 30%;
+  min-width: 0;
+  position: sticky;
+  top: 4px;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 96px);
+}
+.assistant-chat .chat-log {
+  flex: 1;
+  max-height: none;
+}
+/* In the narrow column, stack the chat header title above its hint. */
+.assistant-chat .policy-head {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
 .chat-log {
   background: var(--panel);
   border: 1px solid var(--line);
