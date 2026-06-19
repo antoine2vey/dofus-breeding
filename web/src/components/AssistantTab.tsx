@@ -557,7 +557,7 @@ export function AssistantTab({
         <aside className="assistant-chat">
           {/* Chat side-channel */}
           <div className="policy-head">
-            <span>💬 Contremaître IA</span>
+            <span>💬 IA</span>
             <span className="muted">
               demande, ajuste, ou laisse-le agir (« croise 3 et 4 », « j'ai capturé 5 Amande »)
             </span>
@@ -598,9 +598,8 @@ export function AssistantTab({
 
       <p className="plan-note muted">
         Le plan est <b>déterministe</b> (feuille de route + prochaine étape calculées depuis ton
-        cheptel réel) ; les déplacements s'appliquent direct, les croisements/clonages se
-        confirment. Le <b>contremaître IA</b>
-        lit le même plan, répond aux questions et peut agir sur ta demande.
+        stock réel) ; les déplacements s'appliquent direct, les croisements/clonages se confirment.
+        L'<b>IA</b> lit le même plan, répond aux questions et peut agir sur ta demande.
       </p>
     </div>
   )
