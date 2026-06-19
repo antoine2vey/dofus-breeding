@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState } from 'react'
 
 /**
  * The mutation seam every state-changing action in a tab crosses.
@@ -14,20 +14,20 @@ import { useRef, useState } from "react";
  * surface an action error after the refresh.
  */
 export function useMutation(onSettled?: () => void | Promise<void>) {
-  const [busy, setBusy] = useState(false);
-  const inFlight = useRef(false);
-  const run = async <T,>(p: Promise<T>): Promise<T | undefined> => {
-    if (inFlight.current) return undefined; // a mutation is already running — drop the re-entry
-    inFlight.current = true;
-    setBusy(true);
+  const [busy, setBusy] = useState(false)
+  const inFlight = useRef(false)
+  const run = async <T>(p: Promise<T>): Promise<T | undefined> => {
+    if (inFlight.current) return undefined // a mutation is already running — drop the re-entry
+    inFlight.current = true
+    setBusy(true)
     try {
-      const r = await p;
-      await onSettled?.();
-      return r;
+      const r = await p
+      await onSettled?.()
+      return r
     } finally {
-      inFlight.current = false;
-      setBusy(false);
+      inFlight.current = false
+      setBusy(false)
     }
-  };
-  return { busy, run };
+  }
+  return { busy, run }
 }
