@@ -58,6 +58,25 @@ it.effect("isolation: each user sees only their own cheptel and cannot touch ano
   }).pipe(Effect.provide(TestRepo)),
 );
 
+it.effect("per-user webhook + encrypted AI key are isolated and round-trip", () =>
+  Effect.gen(function* () {
+    const repo = yield* Repo;
+    yield* withUser("user-A", repo.setWebhook("https://hook/A"));
+    yield* withUser("user-A", repo.setAiKey("sk-secret-A"));
+    yield* withUser("user-B", repo.setWebhook("https://hook/B"));
+
+    expect(yield* withUser("user-A", repo.getWebhook)).toBe("https://hook/A");
+    expect(yield* withUser("user-B", repo.getWebhook)).toBe("https://hook/B"); // not A's
+    expect(yield* withUser("user-A", repo.getAiKey)).toBe("sk-secret-A"); // decrypts
+    expect(yield* withUser("user-B", repo.getAiKey)).toBe(null); // B never set one
+    expect(yield* withUser("user-A", repo.hasAiKey)).toBe(true);
+    expect(yield* repo.getWebhook).toBe(""); // system/ticker context (no user) → empty
+
+    yield* withUser("user-A", repo.setAiKey("")); // clearing removes it
+    expect(yield* withUser("user-A", repo.getAiKey)).toBe(null);
+  }).pipe(Effect.provide(TestRepo)),
+);
+
 it.effect("seeds one enclos (default focus) with NO dragodinde", () =>
   provide(
     Effect.gen(function* () {

@@ -65,12 +65,11 @@ Réponds en français, concis. Propose la prochaine étape claire, agis, puis di
 
 export class Ai extends Effect.Service<Ai>()("app/Ai", {
 	effect: Effect.gen(function* () {
-		const apiKey = yield* Config.string("OPENAI_API_KEY").pipe(Config.withDefault(""));
 		// Agent loop needs solid tool-use — default off the mini tier (still OPENAI_MODEL-overridable).
 		const modelId = yield* Config.string("OPENAI_MODEL").pipe(Config.withDefault("gpt-4o"));
-		const isConfigured = apiKey.length > 0;
 
-		const reply = (messages: ReadonlyArray<ChatMessage>, opts: ReplyOpts, actions: AiActions) => {
+		// BYOK: each request brings the signed-in user's own OpenAI key (decrypted server-side).
+		const reply = (messages: ReadonlyArray<ChatMessage>, opts: ReplyOpts, actions: AiActions, apiKey: string) => {
 			const openai = createOpenAI({ apiKey });
 			const num = z.number().int();
 			// Cap batch size so one mis-fired/injected tool call can't mass-mutate or wipe the herd.
@@ -213,6 +212,6 @@ export class Ai extends Effect.Service<Ai>()("app/Ai", {
 			return result.textStream;
 		};
 
-		return { isConfigured, reply } as const;
+		return { reply } as const;
 	}),
 }) {}

@@ -159,7 +159,14 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ webhookUrl }),
-    }).then((r) => json<{ webhookConfigured: boolean }>(r)),
+    }).then((r) => json<{ webhookConfigured: boolean; aiConfigured: boolean }>(r)),
+  // BYOK: save ("" clears) the current user's OpenAI key. Never returns the key.
+  setAiKey: (aiKey: string) =>
+    fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ aiKey }),
+    }).then((r) => json<{ webhookConfigured: boolean; aiConfigured: boolean }>(r)),
   testNotify: () =>
     fetch("/api/test-notify", { method: "POST" }).then((r) =>
       json<{ ok: boolean; reason?: string }>(r),

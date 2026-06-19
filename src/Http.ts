@@ -161,12 +161,13 @@ const router1 = HttpRouter.empty.pipe(
       const stable = yield* repo.stable;
       const achievements = yield* repo.getAchievements;
       const webhookConfigured = yield* discord.isConfigured;
+      const aiConfigured = yield* repo.hasAiKey;
       const tickMs = yield* Config.integer("TICK_MS").pipe(Config.withDefault(10000));
       return HttpServerResponse.unsafeJson({
         enclos,
         stable,
         achievements,
-        settings: { webhookConfigured },
+        settings: { webhookConfigured, aiConfigured },
         meta: {
           fuelBars: BARS,
           focusable: FOCUSABLE,
@@ -319,9 +320,10 @@ const router1 = HttpRouter.empty.pipe(
     Effect.gen(function* () {
       const ai = yield* Ai;
       const repo = yield* Repo;
-      if (!ai.isConfigured) {
+      const apiKey = yield* repo.getAiKey; // BYOK — the current user's own OpenAI key
+      if (!apiKey) {
         return HttpServerResponse.unsafeJson(
-          { error: "OPENAI_API_KEY non configurée (variable d'environnement)" },
+          { error: "Ajoute ta clé OpenAI dans les réglages (⚙︎) pour activer l'assistant IA." },
           { status: 400 },
         );
       }
@@ -385,7 +387,7 @@ const router1 = HttpRouter.empty.pipe(
         optimakina: body.optimakina === true,
         clonage: body.clonage !== false,
         achievements: yield* repo.getAchievements,
-      }, actions);
+      }, actions, apiKey);
       const enc = new TextEncoder();
       const sse = Stream.fromAsyncIterable(it, (e) => new Error(String(e))).pipe(
         Stream.map((t) => enc.encode(`data: ${JSON.stringify({ text: t })}\n\n`)),
@@ -538,10 +540,12 @@ const router2 = router1.pipe(
     Effect.gen(function* () {
       const repo = yield* Repo;
       const discord = yield* Discord;
-      const body = (yield* readBody) as { webhookUrl?: unknown };
+      const body = (yield* readBody) as { webhookUrl?: unknown; aiKey?: unknown };
       if (typeof body.webhookUrl === "string") yield* repo.setWebhook(body.webhookUrl.trim());
+      if (typeof body.aiKey === "string") yield* repo.setAiKey(body.aiKey); // "" clears it
       const webhookConfigured = yield* discord.isConfigured;
-      return HttpServerResponse.unsafeJson({ webhookConfigured });
+      const aiConfigured = yield* repo.hasAiKey;
+      return HttpServerResponse.unsafeJson({ webhookConfigured, aiConfigured });
     }),
   ),
 

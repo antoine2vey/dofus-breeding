@@ -217,6 +217,7 @@ export default function App() {
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         onConfigured={() => refresh()}
+        aiConfigured={settings.aiConfigured}
       />
     </>
   );

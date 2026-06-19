@@ -2,6 +2,7 @@ import { SqlClient } from "@effect/sql";
 import { COLOR_BY_NAME, buildName, parseName } from "@dd/core";
 import { Effect, FiberRef, Option } from "effect";
 import { currentUserId, requireUserId } from "./tenant.js";
+import { decryptSecret, encryptSecret } from "./crypto.js";
 import {
   type Dragodinde,
   type Enclos,
@@ -801,12 +802,40 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
       }),
     );
 
-    const getWebhook = sql<{ webhook_url: string }>`
-      SELECT webhook_url FROM settings WHERE id = 1
-    `.pipe(Effect.map((rows) => rows[0]?.webhook_url ?? ""));
+    /** The current user's Discord webhook ('' when unset, or in the system/ticker context — which
+     *  has no user; the Discord service then falls back to the legacy DISCORD_WEBHOOK_URL env). */
+    const getWebhook = Effect.gen(function* () {
+      const uid = yield* FiberRef.get(currentUserId);
+      if (!uid) return "";
+      const rows = yield* sql<{ webhook_url: string }>`SELECT webhook_url FROM user_settings WHERE user_id = ${uid}`;
+      return rows[0]?.webhook_url ?? "";
+    });
 
     const setWebhook = (url: string) =>
-      sql`UPDATE settings SET webhook_url = ${url} WHERE id = 1`.pipe(Effect.asVoid);
+      Effect.gen(function* () {
+        const uid = yield* requireUserId;
+        yield* sql`INSERT INTO user_settings (user_id, webhook_url) VALUES (${uid}, ${url})
+                   ON CONFLICT(user_id) DO UPDATE SET webhook_url = excluded.webhook_url`;
+      });
+
+    /** The current user's OpenAI key, decrypted (null if unset). Server-side only — never returned
+     *  to the client; the AI chat passes it straight to the OpenAI SDK. */
+    const getAiKey = Effect.gen(function* () {
+      const uid = yield* requireUserId;
+      const rows = yield* sql<{ ai_key_enc: string | null }>`SELECT ai_key_enc FROM user_settings WHERE user_id = ${uid}`;
+      const enc = rows[0]?.ai_key_enc;
+      return enc ? decryptSecret(enc) : null;
+    });
+    /** Whether the current user has an AI key set (for the UI — without revealing the key). */
+    const hasAiKey = getAiKey.pipe(Effect.map((k) => !!k));
+    /** Set (encrypted) or clear (empty string) the current user's OpenAI key. */
+    const setAiKey = (key: string) =>
+      Effect.gen(function* () {
+        const uid = yield* requireUserId;
+        const enc = key.trim() ? encryptSecret(key.trim()) : null;
+        yield* sql`INSERT INTO user_settings (user_id, ai_key_enc) VALUES (${uid}, ${enc})
+                   ON CONFLICT(user_id) DO UPDATE SET ai_key_enc = excluded.ai_key_enc`;
+      });
 
     const getAchievements = Effect.gen(function* () {
       const uid = yield* requireUserId;
@@ -876,6 +905,9 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
       tickAll,
       getWebhook,
       setWebhook,
+      getAiKey,
+      hasAiKey,
+      setAiKey,
       getAchievements,
       setAchievements,
       claimOrphansIfSeedOwner,
