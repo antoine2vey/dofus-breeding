@@ -1,0 +1,9 @@
+# Revisions to ignore in `git blame` (bulk, no-behavior-change reformats).
+# Locally: git config blame.ignoreRevsFile .git-blame-ignore-revs
+# GitHub applies this file automatically.
+
+# Format the codebase with Biome (single quotes, no semicolons, no trailing commas)
+c517b377e4611e36e33c0e57b9c73e1d62105b7f
+
+# Sort imports with Biome
+29cc394fba158c88e13c19ebb5de87d3a78c9fe2

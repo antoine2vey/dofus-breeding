@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 
-# Node 20 (Debian/glibc) so better-sqlite3 uses prebuilt binaries and the
-# Node-18 `File` polyfill is a harmless no-op.
+# Node 24 (Debian/glibc) so better-sqlite3 uses prebuilt binaries. Node 24 has
+# File/Blob and the Web Crypto `crypto` global natively (Better Auth needs it),
+# so no polyfill is required. Keep this >= the package.json engines floor (>=20).
 #
 # This is an npm *workspaces* monorepo: the root package (server), `packages/core`
 # (@dd/core shared engine) and `web` (React frontend) share one root lockfile.
@@ -10,7 +11,7 @@
 
 # 1) Production dependencies only — includes the native better-sqlite3, no dev tooling.
 #    Workspace manifests are needed up-front so npm links @dd/core during install.
-FROM node:20-bookworm AS deps
+FROM node:24-bookworm AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/core/package.json ./packages/core/
@@ -18,7 +19,7 @@ COPY web/package.json ./web/
 RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
 
 # 2) Build — compile @dd/core, the server, and bundle the React frontend.
-FROM node:20-bookworm AS build
+FROM node:24-bookworm AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/core/package.json ./packages/core/
@@ -33,7 +34,7 @@ RUN npm run build:server \
  && npm -w dragodinde-web run build
 
 # 3) Runtime — slim, non-root: just node + prod deps + compiled output.
-FROM node:20-bookworm-slim AS runtime
+FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3000 \
@@ -60,7 +61,7 @@ USER app
 EXPOSE 3000
 VOLUME ["/data"]
 
-# relies on Node 20's global fetch (this image is Node 20 — do not "fix" with node-fetch)
+# relies on Node 24's global fetch (this image is Node 24 — do not "fix" with node-fetch)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/state').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
