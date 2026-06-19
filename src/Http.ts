@@ -9,6 +9,7 @@ import * as NodeHttpServerRequest from "@effect/platform-node/NodeHttpServerRequ
 import { Config, Effect, Option, Stream } from "effect";
 import { fromNodeHeaders, toNodeHandler } from "better-auth/node";
 import { auth } from "./auth.js";
+import { withUser } from "./tenant.js";
 import { fileURLToPath } from "node:url";
 import {
   Repo,
@@ -132,6 +133,10 @@ export const authGate = HttpMiddleware.make((app) =>
       if (Option.isNone(user)) {
         return HttpServerResponse.unsafeJson({ error: "unauthenticated" }, { status: 401 });
       }
+      // #3 foundation: pin the owning user for this request. The Repo doesn't read it yet (its
+      // queries are still global), so data isn't isolated until #3's data-layer scoping + seed
+      // claim + isolation test land. Harmless until then.
+      return yield* withUser(user.value.id, app);
     }
     return yield* app;
   }),
