@@ -1063,8 +1063,14 @@ nav.tabs {
   font-family: inherit;
   font-size: 12px;
 }
+/* Wide data tables scroll horizontally within their own box, so a narrow
+   viewport never widens the whole pane / page (the import section stays put). */
+.herd-table-wrap {
+  overflow-x: auto;
+}
 .herd-table {
   width: 100%;
+  min-width: max-content;
   border-collapse: separate;
   border-spacing: 0;
   margin-top: 6px;

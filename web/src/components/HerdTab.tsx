@@ -226,57 +226,59 @@ export function HerdTab({
         <div className={importMsg.startsWith('✗') ? 'decode-err' : 'decode-ok'}>{importMsg}</div>
       )}
       {parsed.length > 0 && (
-        <table className="herd-table">
-          <thead>
-            <tr>
-              <th>Nom</th>
-              <th>Couleur</th>
-              <th>Sexe</th>
-              <th>Keeper</th>
-              <th>Grands-parents</th>
-              <th>État</th>
-            </tr>
-          </thead>
-          <tbody>
-            {parsed.map((p, i) => (
-              <tr key={i} className={p.parts ? '' : 'sterile'}>
-                <td className="herd-name">
-                  <code>{p.line}</code>
-                </td>
-                {p.parts ? (
-                  <>
-                    <td style={{ color: GEN_COLOR[genOf(p.parts.color)] }}>{p.parts.color}</td>
-                    <td className="ctr">{p.parts.sex === 'F' ? '♀' : '♂'}</td>
-                    <td className="ctr">{p.parts.keeper ? '★' : ''}</td>
-                    <td className="muted small">{p.parts.grandparents?.join(' + ') || '—'}</td>
-                    <td>
-                      <select
-                        value={p.status}
-                        onChange={(e) =>
-                          setParsed(
-                            parsed.map((q, j) =>
-                              j === i ? { ...q, status: e.target.value as ReproStatus } : q
-                            )
-                          )
-                        }
-                      >
-                        {STATUS.map((s) => (
-                          <option key={s.value} value={s.value}>
-                            {s.label}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                  </>
-                ) : (
-                  <td colSpan={5} className="decode-err">
-                    nom non reconnu
-                  </td>
-                )}
+        <div className="herd-table-wrap">
+          <table className="herd-table">
+            <thead>
+              <tr>
+                <th>Nom</th>
+                <th>Couleur</th>
+                <th>Sexe</th>
+                <th>Keeper</th>
+                <th>Grands-parents</th>
+                <th>État</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {parsed.map((p, i) => (
+                <tr key={i} className={p.parts ? '' : 'sterile'}>
+                  <td className="herd-name">
+                    <code>{p.line}</code>
+                  </td>
+                  {p.parts ? (
+                    <>
+                      <td style={{ color: GEN_COLOR[genOf(p.parts.color)] }}>{p.parts.color}</td>
+                      <td className="ctr">{p.parts.sex === 'F' ? '♀' : '♂'}</td>
+                      <td className="ctr">{p.parts.keeper ? '★' : ''}</td>
+                      <td className="muted small">{p.parts.grandparents?.join(' + ') || '—'}</td>
+                      <td>
+                        <select
+                          value={p.status}
+                          onChange={(e) =>
+                            setParsed(
+                              parsed.map((q, j) =>
+                                j === i ? { ...q, status: e.target.value as ReproStatus } : q
+                              )
+                            )
+                          }
+                        >
+                          {STATUS.map((s) => (
+                            <option key={s.value} value={s.value}>
+                              {s.label}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                    </>
+                  ) : (
+                    <td colSpan={5} className="decode-err">
+                      nom non reconnu
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {/* Herd list */}
@@ -429,124 +431,129 @@ export function HerdTab({
       ) : filtered.length === 0 ? (
         <div className="muted small">Aucune monture ne correspond aux filtres.</div>
       ) : (
-        <table className="herd-table">
-          <thead>
-            <tr>
-              <th className="ctr">
-                <input
-                  type="checkbox"
-                  checked={allFilteredSelected}
-                  onChange={toggleAll}
-                  title="Tout sélectionner (filtré)"
-                />
-              </th>
-              <th>Nom</th>
-              <th>Couleur</th>
-              <th>Gén</th>
-              <th>Sexe</th>
-              <th>État</th>
-              <th>Keeper</th>
-              <th>Lieu</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((m) => (
-              <tr
-                key={m.id}
-                className={
-                  (m.status === 'sterile' ? 'sterile' : '') +
-                  (selected.has(m.id) ? ' row-selected' : '')
-                }
-              >
-                <td className="ctr">
+        <div className="herd-table-wrap">
+          <table className="herd-table">
+            <thead>
+              <tr>
+                <th className="ctr">
                   <input
                     type="checkbox"
-                    checked={selected.has(m.id)}
-                    onChange={() => toggleOne(m.id)}
+                    checked={allFilteredSelected}
+                    onChange={toggleAll}
+                    title="Tout sélectionner (filtré)"
                   />
-                </td>
-                <td className="herd-name">
-                  <input
-                    type="text"
-                    value={m.name}
-                    onChange={(e) => patch(m.id, { name: e.target.value })}
-                  />
-                </td>
-                <td>
-                  <select value={m.color} onChange={(e) => patch(m.id, { color: e.target.value })}>
-                    <option value="">—</option>
-                    {RACES.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td className="ctr" style={{ color: GEN_COLOR[genOf(m.color)], fontWeight: 700 }}>
-                  {m.color ? genOf(m.color) : '—'}
-                </td>
-                <td>
-                  <select
-                    value={m.sex}
-                    onChange={(e) => patch(m.id, { sex: e.target.value as Sex })}
-                  >
-                    <option value="F">♀</option>
-                    <option value="M">♂</option>
-                  </select>
-                </td>
-                <td>
-                  <select
-                    value={m.status}
-                    onChange={(e) => patch(m.id, { status: e.target.value as ReproStatus })}
-                  >
-                    {STATUS.map((s) => (
-                      <option key={s.value} value={s.value}>
-                        {s.label}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td className="ctr">
-                  <input
-                    type="checkbox"
-                    checked={m.keeper}
-                    onChange={(e) => patch(m.id, { keeper: e.target.checked })}
-                  />
-                </td>
-                <td>
-                  <select
-                    value={m.enclosId ?? ''}
-                    onChange={(e) =>
-                      move(m.id, e.target.value === '' ? null : Number(e.target.value))
-                    }
-                  >
-                    <option value="">🏠 Étable</option>
-                    {enclos.map((e) => (
-                      <option
-                        key={e.id}
-                        value={e.id}
-                        disabled={m.enclosId !== e.id && e.dragodindes.length >= 10}
-                      >
-                        {e.name}
-                        {e.dragodindes.length >= 10 ? ' (plein)' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td className="ctr">
-                  <button
-                    className="mini ghost"
-                    disabled={busy}
-                    onClick={() => run(api.removeDragodinde(m.id))}
-                  >
-                    ✕
-                  </button>
-                </td>
+                </th>
+                <th>Nom</th>
+                <th>Couleur</th>
+                <th>Gén</th>
+                <th>Sexe</th>
+                <th>État</th>
+                <th>Keeper</th>
+                <th>Lieu</th>
+                <th></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {filtered.map((m) => (
+                <tr
+                  key={m.id}
+                  className={
+                    (m.status === 'sterile' ? 'sterile' : '') +
+                    (selected.has(m.id) ? ' row-selected' : '')
+                  }
+                >
+                  <td className="ctr">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(m.id)}
+                      onChange={() => toggleOne(m.id)}
+                    />
+                  </td>
+                  <td className="herd-name">
+                    <input
+                      type="text"
+                      value={m.name}
+                      onChange={(e) => patch(m.id, { name: e.target.value })}
+                    />
+                  </td>
+                  <td>
+                    <select
+                      value={m.color}
+                      onChange={(e) => patch(m.id, { color: e.target.value })}
+                    >
+                      <option value="">—</option>
+                      {RACES.map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="ctr" style={{ color: GEN_COLOR[genOf(m.color)], fontWeight: 700 }}>
+                    {m.color ? genOf(m.color) : '—'}
+                  </td>
+                  <td>
+                    <select
+                      value={m.sex}
+                      onChange={(e) => patch(m.id, { sex: e.target.value as Sex })}
+                    >
+                      <option value="F">♀</option>
+                      <option value="M">♂</option>
+                    </select>
+                  </td>
+                  <td>
+                    <select
+                      value={m.status}
+                      onChange={(e) => patch(m.id, { status: e.target.value as ReproStatus })}
+                    >
+                      {STATUS.map((s) => (
+                        <option key={s.value} value={s.value}>
+                          {s.label}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="ctr">
+                    <input
+                      type="checkbox"
+                      checked={m.keeper}
+                      onChange={(e) => patch(m.id, { keeper: e.target.checked })}
+                    />
+                  </td>
+                  <td>
+                    <select
+                      value={m.enclosId ?? ''}
+                      onChange={(e) =>
+                        move(m.id, e.target.value === '' ? null : Number(e.target.value))
+                      }
+                    >
+                      <option value="">🏠 Étable</option>
+                      {enclos.map((e) => (
+                        <option
+                          key={e.id}
+                          value={e.id}
+                          disabled={m.enclosId !== e.id && e.dragodindes.length >= 10}
+                        >
+                          {e.name}
+                          {e.dragodindes.length >= 10 ? ' (plein)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="ctr">
+                    <button
+                      className="mini ghost"
+                      disabled={busy}
+                      onClick={() => run(api.removeDragodinde(m.id))}
+                    >
+                      ✕
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       <p className="plan-note muted">
