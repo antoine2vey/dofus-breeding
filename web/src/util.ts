@@ -1,4 +1,4 @@
-import type { Bar, Enclos, FocusKey, Meta, Stats, StatKey } from './types'
+import type { Bar, Enclos, FocusKey, Meta, StatKey, Stats } from './types'
 
 export const FUEL_MAX = 100000
 

@@ -1,3 +1,12 @@
+import { fileURLToPath } from 'node:url'
+import {
+  type AssistEnclos,
+  type AssistMount,
+  assistantPlan,
+  buildName,
+  recommend,
+  resolveColor
+} from '@dd/core'
 import {
   FileSystem,
   HttpMiddleware,
@@ -6,33 +15,14 @@ import {
   HttpServerResponse
 } from '@effect/platform'
 import * as NodeHttpServerRequest from '@effect/platform-node/NodeHttpServerRequest'
-import { Config, Effect, Option, Stream } from 'effect'
 import { fromNodeHeaders, toNodeHandler } from 'better-auth/node'
-import { auth } from './auth.js'
-import { requireUserId, withUser } from './tenant.js'
-import { fileURLToPath } from 'node:url'
-import {
-  Repo,
-  type CloneInput,
-  type CrossInput,
-  type DragoPatch,
-  type EnclosPatch,
-  type ImportRow,
-  type SeedInput
-} from './Repo.js'
-import { Discord } from './Discord.js'
+import { Config, Effect, Option, Stream } from 'effect'
 import { Ai, type AiActions, type ChatMessage } from './Ai.js'
+import { auth } from './auth.js'
+import { Discord } from './Discord.js'
 import {
-  recommend,
-  assistantPlan,
-  buildName,
-  resolveColor,
-  type AssistMount,
-  type AssistEnclos
-} from '@dd/core'
-import {
-  type Dragodinde,
   BARS,
+  type Dragodinde,
   FOCUSABLE,
   MAX_DRAGODINDES,
   MAX_ENCLOS,
@@ -43,6 +33,16 @@ import {
   SERENITY_MIN,
   STAT_MAX
 } from './domain.js'
+import {
+  type CloneInput,
+  type CrossInput,
+  type DragoPatch,
+  type EnclosPatch,
+  type ImportRow,
+  Repo,
+  type SeedInput
+} from './Repo.js'
+import { requireUserId, withUser } from './tenant.js'
 
 /** The one projection from a stored Dragodinde to the planner's AssistMount. AssistMount is a
  *  superset of the recommender's InvMount, so this single adapter feeds /api/recommend,

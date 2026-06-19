@@ -1,7 +1,7 @@
 import { HttpClient, HttpClientRequest } from '@effect/platform'
 import { Config, Effect } from 'effect'
-import { Repo, type CompletedItem } from './Repo.js'
-import { type FocusKey, BARS } from './domain.js'
+import { BARS, type FocusKey } from './domain.js'
+import { type CompletedItem, Repo } from './Repo.js'
 
 export interface DiscordEmbed {
   readonly title?: string

@@ -1,6 +1,6 @@
 import { Config, Duration, Effect, Layer, Schedule } from 'effect'
-import { Repo } from './Repo.js'
 import { Discord } from './Discord.js'
+import { Repo } from './Repo.js'
 
 /** The only continuous background process in the elapsed-time model: a coarse sweep that advances +
  *  persists the enclos that have actually ticked since last time, and fires each user's completions

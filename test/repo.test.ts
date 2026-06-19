@@ -1,9 +1,9 @@
-import { expect, it } from '@effect/vitest'
 import { SqliteClient } from '@effect/sql-sqlite-node'
+import { expect, it } from '@effect/vitest'
 import { Effect, Layer, Option } from 'effect'
+import { STAT_MAX } from '../src/domain.js'
 import { Repo } from '../src/Repo.js'
 import { withUser } from '../src/tenant.js'
-import { STAT_MAX } from '../src/domain.js'
 
 const TestRepo = Repo.Default.pipe(Layer.provide(SqliteClient.layer({ filename: ':memory:' })))
 // Every test runs as a single signed-in user; the isolation test below uses multiple.

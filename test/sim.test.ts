@@ -1,5 +1,5 @@
+import { makeRng, monteCarlo } from '@dd/core'
 import { describe, expect, it } from 'vitest'
-import { monteCarlo, makeRng } from '@dd/core'
 
 // sim.ts is a deep module (Monte-Carlo cheptel projection) used by the breeding-tree view and the
 // AI's `simulate` tool, but it was untested. These assert its interface: the seedable-RNG contract

@@ -1,6 +1,6 @@
-import { useState } from 'react'
-import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { COLOR_BY_NAME, GEN_COLOR } from '@dd/core'
+import { useDraggable, useDroppable } from '@dnd-kit/core'
+import { useState } from 'react'
 import type { Dragodinde, ReproStatus } from '../types'
 
 const STATUS_LABEL: Record<ReproStatus, string> = {

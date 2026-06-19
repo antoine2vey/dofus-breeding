@@ -8,9 +8,9 @@
 //
 // Pure. The deterministic source of truth for the Assistant; the AI orchestrates on top of it.
 
-import { COLORS, COLOR_BY_NAME } from './colors.js'
 import { cheptelAccounting } from './cheptel.js'
-import { recommend, type InvMount, type ReproStatus, type BreedAction } from './recommend.js'
+import { COLOR_BY_NAME, COLORS } from './colors.js'
+import { type BreedAction, type InvMount, type ReproStatus, recommend } from './recommend.js'
 
 const genOf = (color: string) => COLOR_BY_NAME.get(color)?.gen ?? 0
 const ENCLOS_CAP = 10

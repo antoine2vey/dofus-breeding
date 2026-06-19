@@ -1,5 +1,5 @@
+import { COLORS, type InvMount, recommend } from '@dd/core'
 import { describe, expect, it } from 'vitest'
-import { recommend, COLORS, type InvMount } from '@dd/core'
 
 const mount = (o: Partial<InvMount> & { id: number }): InvMount => ({
   color: 'Amande',

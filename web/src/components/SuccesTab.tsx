@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
 import { COLORS, GEN_COLOR } from '@dd/core'
+import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
 import { useMutation } from '../useMutation'
 

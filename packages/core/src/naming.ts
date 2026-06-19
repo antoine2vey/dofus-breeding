@@ -18,7 +18,7 @@
 // above lowercase) → females before males. So a colour's whole pool reads as one
 // scannable run with its keeper pinned on top.
 
-import { COLORS, COLOR_BY_NAME } from './colors.js'
+import { COLOR_BY_NAME, COLORS } from './colors.js'
 
 /** The 11 pure colours → unique single ASCII letter. Bicolours concatenate two of these. */
 export const BASE_LETTER: Record<string, string> = {

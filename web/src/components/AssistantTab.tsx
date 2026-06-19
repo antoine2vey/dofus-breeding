@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
-import { COLOR_BY_NAME, COLORS, GEN_COLOR, inGameCompare } from '@dd/core'
 import type { AssistantPlan, BreedAction, CaptureNeed, CloneAction, RaiseAction } from '@dd/core'
+import { COLOR_BY_NAME, COLORS, GEN_COLOR, inGameCompare } from '@dd/core'
+import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api'
-import { useMutation } from '../useMutation'
 import type { Dragodinde, Enclos, ReproStatus, Sex } from '../types'
+import { useMutation } from '../useMutation'
 
 const RACES = COLORS.map((c) => c.name)
 const genOf = (c: string) => COLOR_BY_NAME.get(c)?.gen ?? 0

@@ -1,13 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
 import { useDroppable } from '@dnd-kit/core'
+import { useEffect, useRef, useState } from 'react'
 import type { Bar, Enclos, EnclosPatch, FocusKey, FuelKey, Meta } from '../types'
 import {
-  FUEL_MAX,
   barEtaToMaxSec,
   barNeeded,
   clamp,
   enclosDoneCount,
   etaNextStepSec,
+  FUEL_MAX,
   fmtEta,
   focusLabels,
   nextStepLabel,

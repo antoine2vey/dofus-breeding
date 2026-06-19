@@ -1,33 +1,33 @@
+import { buildName, COLOR_BY_NAME, parseName } from '@dd/core'
 import { SqlClient } from '@effect/sql'
-import { COLOR_BY_NAME, buildName, parseName } from '@dd/core'
 import { Effect, FiberRef, Option } from 'effect'
-import { currentUserId, requireUserId } from './tenant.js'
 import { decryptSecret, encryptSecret } from './crypto.js'
 import {
+  advanceEnclos,
+  clamp,
+  DEFAULT_FOCUS,
   type Dragodinde,
   type Enclos,
-  type FocusKey,
-  type FuelKey,
-  type ReproStatus,
-  type Sex,
-  type StatKey,
-  DEFAULT_FOCUS,
+  emptyFuel,
   FOCUSABLE,
+  type FocusKey,
   FUEL_KEYS,
   FUEL_MAX,
+  type FuelKey,
+  focusAllMaxed,
   MAX_DRAGODINDES,
   MAX_ENCLOS,
   MAX_FOCUS,
   MAX_STABLE,
+  type ReproStatus,
+  reproStatus,
   SERENITY_MAX,
   SERENITY_MIN,
+  type Sex,
   STAT_MAX,
-  clamp,
-  emptyFuel,
-  focusAllMaxed,
-  reproStatus,
-  advanceEnclos
+  type StatKey
 } from './domain.js'
+import { currentUserId, requireUserId } from './tenant.js'
 
 interface EnclosRow {
   readonly id: number

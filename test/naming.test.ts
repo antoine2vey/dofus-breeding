@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
 import { inGameCompare } from '@dd/core'
+import { describe, expect, it } from 'vitest'
 
 describe('inGameCompare (in-game list order)', () => {
   it('sorts as the in-game namer does — comparing segments with hyphens ignored', () => {

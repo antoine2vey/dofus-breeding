@@ -1,5 +1,5 @@
+import { type AssistEnclos, type AssistMount, assistantPlan, COLORS } from '@dd/core'
 import { describe, expect, it } from 'vitest'
-import { assistantPlan, COLORS, type AssistMount, type AssistEnclos } from '@dd/core'
 
 const m = (o: Partial<AssistMount> & { id: number }): AssistMount => ({
   name: `dd-${o.id}`,

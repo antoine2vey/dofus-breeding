@@ -13,7 +13,7 @@
 // "target": it gets p = 0.3 + 0.0015·(ΣparentLevels) + 0.1·(optimakina), and the rest
 // share (1−p) proportional to their weights.
 
-import { COLORS, COLOR_BY_NAME } from './colors.js'
+import { COLOR_BY_NAME, COLORS } from './colors.js'
 
 // Recipe lookup: unordered pair of parent races -> child race.
 const RECIPE = new Map<string, string>()

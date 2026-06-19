@@ -1,16 +1,16 @@
+import { buildName, resolveColor } from '@dd/core'
 import { describe, expect, it } from 'vitest'
-import { resolveColor, buildName } from '@dd/core'
 import {
   bandRate,
-  focusAllMaxed,
-  makeDragodinde,
-  tickEnclos,
   DEFAULT_FOCUS,
-  STAT_MAX,
   type Dragodinde,
   type Enclos,
   type FocusKey,
-  type FuelKey
+  type FuelKey,
+  focusAllMaxed,
+  makeDragodinde,
+  STAT_MAX,
+  tickEnclos
 } from '../src/domain.js'
 
 describe('bandRate', () => {

@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react'
-import { COLORS, COLOR_BY_NAME, GEN_COLOR, buildName, crossOdds, parseName } from '@dd/core'
 import type { NameParts } from '@dd/core'
+import { buildName, COLOR_BY_NAME, COLORS, crossOdds, GEN_COLOR, parseName } from '@dd/core'
+import { useMemo, useState } from 'react'
 import { api } from '../api'
-import { useMutation } from '../useMutation'
 import type { Dragodinde, Enclos, ImportRow, ReproStatus, Sex } from '../types'
+import { useMutation } from '../useMutation'
 
 const RACES = COLORS.map((c) => c.name)
 const genOf = (color: string) => COLOR_BY_NAME.get(color)?.gen ?? 0

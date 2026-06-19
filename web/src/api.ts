@@ -1,4 +1,4 @@
-import type { Recommendation, AssistantPlan } from '@dd/core'
+import type { AssistantPlan, Recommendation } from '@dd/core'
 import type {
   AppState,
   CloneInput,

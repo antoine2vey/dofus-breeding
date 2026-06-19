@@ -2,7 +2,7 @@
 // and the breeding plan. recommend() and assistantPlan() both used to re-derive these independently
 // (and each ran computePlan a second time); now they share one Cheptel, computed once.
 
-import { COLOR_BY_NAME, MAX_GEN, computePlan, type GenPolicy, type Plan } from './colors.js'
+import { COLOR_BY_NAME, computePlan, type GenPolicy, MAX_GEN, type Plan } from './colors.js'
 
 /** The minimum a mount must expose for accounting — colour, repro status, keeper flag. Both
  *  InvMount (recommender) and AssistMount (assistant) satisfy it. */

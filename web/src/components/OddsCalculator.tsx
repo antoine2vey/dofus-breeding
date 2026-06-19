@@ -1,6 +1,5 @@
+import { COLORS, crossOdds, GEN_COLOR, type Mount } from '@dd/core'
 import { useMemo, useState } from 'react'
-import { COLORS, GEN_COLOR } from '@dd/core'
-import { crossOdds, type Mount } from '@dd/core'
 
 const RACES = COLORS.map((c) => c.name)
 

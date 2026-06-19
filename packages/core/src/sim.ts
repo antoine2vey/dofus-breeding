@@ -6,7 +6,7 @@
 // times gives the EXPECTED captures (by colour), breedings and clonages to reach the goal,
 // plus which colours the winning line breeds most (the breeding priorities).
 
-import { COLORS, COLOR_BY_NAME } from './colors.js'
+import { COLOR_BY_NAME, COLORS } from './colors.js'
 import { crossOdds } from './odds.js'
 
 const BASE = ['Amande', 'Dorée', 'Rousse'] as const

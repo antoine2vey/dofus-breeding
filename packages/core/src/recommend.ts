@@ -3,8 +3,8 @@
 // and what to recycle (clone same-colour steriles / extract dead-weight). Pure — reused by
 // the /api/recommend endpoint and exposed as a tool to the AI agent.
 
-import { COLORS, COLOR_BY_NAME } from './colors.js'
-import { cheptelAccounting, type Cheptel } from './cheptel.js'
+import { type Cheptel, cheptelAccounting } from './cheptel.js'
+import { COLOR_BY_NAME, COLORS } from './colors.js'
 import { crossOdds } from './odds.js'
 
 const BASES = ['Amande', 'Dorée', 'Rousse'] as const

@@ -1,7 +1,13 @@
+import {
+  COLOR_BY_NAME,
+  COLORS,
+  crossOdds,
+  GEN_COLOR,
+  makeRng,
+  monteCarlo,
+  type SimMount
+} from '@dd/core'
 import { useMemo, useState } from 'react'
-import { COLORS, COLOR_BY_NAME, GEN_COLOR } from '@dd/core'
-import { crossOdds } from '@dd/core'
-import { monteCarlo, makeRng, type SimMount } from '@dd/core'
 import type { Dragodinde } from '../types'
 
 /** Your real mounts -> sim feedstock (skip uncoloured & keepers; sterile = clonage feedstock). */

@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react'
-import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core'
+import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
+import { useMemo, useState } from 'react'
 import type { Dragodinde, DragoPatch, Enclos, EnclosPatch, Meta } from '../types'
-import { EnclosPane } from './EnclosPane'
 import { DragodindePane } from './DragodindePane'
+import { EnclosPane } from './EnclosPane'
 import { StablePanel } from './StablePanel'
 
 const mountIdOf = (raw: string | number) => Number(String(raw).replace('mount-', ''))

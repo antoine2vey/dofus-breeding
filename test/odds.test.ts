@@ -1,5 +1,5 @@
+import { baseWeight, crossOdds, pTargetFor } from '@dd/core'
 import { describe, expect, it } from 'vitest'
-import { crossOdds, baseWeight, pTargetFor } from '@dd/core'
 
 // crossOdds was previously exercised only THROUGH assistantPlan. These assert the génération-cible
 // probability model at its own interface, so a regression shows up here rather than as a mysterious

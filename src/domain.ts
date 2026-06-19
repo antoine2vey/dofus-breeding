@@ -1,6 +1,7 @@
 // Pure domain logic for the Dragodinde simulation — no Effect, no IO, fully testable.
 
 import type { ReproStatus } from '@dd/core'
+
 export type { ReproStatus }
 
 export const STAT_MAX = 20000 // endurance / maturite / amour cap

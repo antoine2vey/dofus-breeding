@@ -1,15 +1,15 @@
-import { useMemo, useState } from 'react'
-import { GEN_COLOR } from '@dd/core'
 import {
   BASE_LETTER,
-  COLOR_CODES,
   buildName,
+  COLOR_CODES,
   colorCode,
+  GEN_COLOR,
   genOf,
   parseName,
-  validateInGame,
-  type Sex
+  type Sex,
+  validateInGame
 } from '@dd/core'
+import { useMemo, useState } from 'react'
 
 const SEXES: { key: Sex; label: string }[] = [
   { key: 'F', label: '♀ femelle' },

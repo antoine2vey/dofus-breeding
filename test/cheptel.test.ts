@@ -1,5 +1,5 @@
+import { COLORS, cheptelAccounting } from '@dd/core'
 import { describe, expect, it } from 'vitest'
-import { cheptelAccounting, COLORS } from '@dd/core'
 
 // The accounting recommend() and assistantPlan() now share. Tested at its own interface so the
 // stock-vs-sink-vs-obtained distinctions are pinned in one place.
