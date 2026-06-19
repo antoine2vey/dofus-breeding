@@ -1039,7 +1039,8 @@ nav.tabs {
   white-space: nowrap;
 }
 .name-output input[type="text"],
-.plan-controls input[type="text"] {
+.plan-controls input[type="text"],
+.plan-controls input[type="number"] {
   background: var(--panel2);
   color: var(--text);
   border: 1px solid var(--line);
@@ -1115,11 +1116,6 @@ nav.tabs {
   accent-color: var(--accent);
   cursor: pointer;
   margin: 0;
-}
-.herd-name {
-  display: flex;
-  align-items: center;
-  gap: 4px;
 }
 .herd-name input[type="text"] {
   width: 110px;

@@ -310,7 +310,7 @@ export function AssistantTab({
           </select>
         </label>
         <label>
-          Niveau : <b>{level}</b>
+          Niveau
           <input
             type="number"
             min={1}
