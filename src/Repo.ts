@@ -1,7 +1,7 @@
 import { SqlClient } from "@effect/sql";
-import { COLOR_BY_NAME, buildName } from "@dd/core";
-import { Effect, Option } from "effect";
-import { requireUserId } from "./tenant.js";
+import { COLOR_BY_NAME, buildName, parseName } from "@dd/core";
+import { Effect, FiberRef, Option } from "effect";
+import { currentUserId, requireUserId } from "./tenant.js";
 import {
   type Dragodinde,
   type Enclos,
@@ -295,6 +295,15 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
       yield* sql`INSERT INTO achievement (user_id, color) SELECT NULL, color FROM achievement_old`;
       yield* sql`DROP TABLE achievement_old`;
     }
+
+    // Per-user app settings (Discord webhook, encrypted AI key) — keyed by the Better Auth user id.
+    yield* sql`
+      CREATE TABLE IF NOT EXISTS user_settings (
+        user_id TEXT PRIMARY KEY NOT NULL,
+        webhook_url TEXT NOT NULL DEFAULT '',
+        ai_key_enc TEXT
+      )
+    `;
 
     const writeEnclos = (e: Enclos) => sql`
       UPDATE enclos SET
@@ -673,24 +682,37 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
           if (body.stats.serenity != null)
             stats.serenity = clamp(Number(body.stats.serenity) || 0, SERENITY_MIN, SERENITY_MAX);
         }
-        const name = typeof body.name === "string" ? body.name.slice(0, 40) : current.name;
+        const color = typeof body.color === "string" ? body.color : current.color;
+        const sex: Sex = body.sex === "M" || body.sex === "F" ? body.sex : current.sex;
+        const keeper = typeof body.keeper === "boolean" ? body.keeper : current.keeper;
+        const grandparents = Array.isArray(body.grandparents)
+          ? body.grandparents.filter((c): c is string => typeof c === "string" && !!c).slice(0, 2)
+          : current.grandparents;
+        // The name. An explicit name wins. Otherwise keep the current one — UNLESS it's an
+        // auto-generated convention name (parseName recognises it), in which case rebuild it from
+        // the patched parts so the in-game name never drifts from the mount's real sex/colour/
+        // lineage (an edited sex would otherwise leave a stale `-m-`, so a M×F pair reads as M×M).
+        const name =
+          typeof body.name === "string"
+            ? body.name.slice(0, 40)
+            : color && parseName(current.name)
+              ? buildName({ color, sex, keeper, grandparents })
+              : current.name;
         const next = withDoneState(
           {
             ...current,
             name,
             stats,
-            color: typeof body.color === "string" ? body.color : current.color,
-            sex: body.sex === "M" || body.sex === "F" ? body.sex : current.sex,
+            color,
+            sex,
             status: reproStatus(
               body.status === "sterile" || body.status === "fertile" || body.status === "feconde"
                 ? body.status
                 : current.status,
               stats,
             ),
-            keeper: typeof body.keeper === "boolean" ? body.keeper : current.keeper,
-            grandparents: Array.isArray(body.grandparents)
-              ? body.grandparents.filter((c): c is string => typeof c === "string" && !!c).slice(0, 2)
-              : current.grandparents,
+            keeper,
+            grandparents,
           },
           focus,
         );
