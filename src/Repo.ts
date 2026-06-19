@@ -282,14 +282,6 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
       `;
     }
 
-    yield* sql`
-      CREATE TABLE IF NOT EXISTS settings (
-        id INTEGER PRIMARY KEY CHECK (id = 1),
-        webhook_url TEXT NOT NULL DEFAULT ''
-      )
-    `;
-    yield* sql`INSERT OR IGNORE INTO settings (id, webhook_url) VALUES (1, '')`;
-
     // Succès: colours whose in-game achievement is unlocked — per user (composite PK).
     yield* sql`CREATE TABLE IF NOT EXISTS achievement (user_id TEXT, color TEXT NOT NULL, PRIMARY KEY (user_id, color))`;
 
