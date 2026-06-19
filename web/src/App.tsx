@@ -6,6 +6,7 @@ import { EnclosWorkspace } from './components/EnclosWorkspace'
 import { HerdTab } from './components/HerdTab'
 import { NamingTab } from './components/NamingTab'
 import { OddsCalculator } from './components/OddsCalculator'
+import { OnboardingWizard } from './components/OnboardingWizard'
 import { SettingsDialog } from './components/SettingsDialog'
 import { SuccesTab } from './components/SuccesTab'
 import type { AppState, DragoPatch, EnclosPatch } from './types'
@@ -31,6 +32,8 @@ export default function App() {
   const [activeId, setActiveId] = useState<number | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [tab, setTab] = useState<Tab>('tracker')
+  const [wizardOpen, setWizardOpen] = useState(false)
+  const onboardChecked = useRef(false)
 
   // Resolve auth once on mount; any later 401 (expired session) flips back to the login wall.
   useEffect(() => {
@@ -64,6 +67,20 @@ export default function App() {
     const t = setInterval(refresh, 3000)
     return () => clearInterval(t)
   }, [refresh, me])
+
+  // First-run: auto-open onboarding once, when an empty stock meets a not-yet-dismissed user.
+  useEffect(() => {
+    if (!state || onboardChecked.current) return
+    const empty = state.stable.length === 0 && state.enclos.every((e) => e.dragodindes.length === 0)
+    if (empty && !localStorage.getItem('dd-onboarded')) {
+      onboardChecked.current = true
+      setWizardOpen(true)
+    }
+  }, [state])
+  const closeWizard = () => {
+    localStorage.setItem('dd-onboarded', '1')
+    setWizardOpen(false)
+  }
 
   const onEnclosPatch = useCallback(
     async (id: number, body: EnclosPatch) => {
@@ -166,6 +183,9 @@ export default function App() {
           <span className={'pill ' + (settings.webhookConfigured ? 'ok' : 'bad')}>
             {settings.webhookConfigured ? 'webhook ✓' : 'webhook ✗'}
           </span>
+          <button className="ghost" title="Tutoriel" onClick={() => setWizardOpen(true)}>
+            ?
+          </button>
           <button className="ghost" onClick={() => setSettingsOpen(true)}>
             ⚙︎ Discord
           </button>
@@ -222,6 +242,8 @@ export default function App() {
         onConfigured={() => refresh()}
         aiConfigured={settings.aiConfigured}
       />
+
+      <OnboardingWizard open={wizardOpen} onClose={closeWizard} />
     </>
   )
 }

@@ -60,6 +60,97 @@ body {
 .discord-btn:hover {
   background: #4752c4;
 }
+
+/* Onboarding wizard (first-run modal) */
+.onboarding-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 20px;
+}
+.onboarding-card {
+  position: relative;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 26px 28px 18px;
+  width: 100%;
+  max-width: 540px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+}
+.onboarding-skip {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 4px 8px;
+}
+.onboarding-skip:hover {
+  color: var(--text);
+}
+.onboarding-step h2 {
+  margin: 0 0 12px;
+  font-size: 20px;
+}
+.onboarding-step p {
+  color: var(--text);
+  line-height: 1.55;
+  margin: 0 0 12px;
+}
+.conv-diagram {
+  text-align: center;
+  margin: 18px 0;
+}
+.conv-name {
+  font-family: ui-monospace, monospace;
+  font-size: 30px;
+  letter-spacing: 1px;
+}
+.seg-color {
+  color: #d36bd1;
+  font-weight: 700;
+}
+.seg-sex {
+  color: #3aa5f0;
+  font-weight: 700;
+}
+.seg-gp {
+  color: #f5c518;
+  font-weight: 700;
+}
+.conv-legend {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--text);
+}
+.conv-legend code {
+  background: var(--panel2);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.onboarding-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+.onboarding-actions {
+  display: flex;
+  gap: 8px;
+}
 .muted {
   color: var(--muted);
   font-weight: 400;
