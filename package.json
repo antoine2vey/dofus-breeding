@@ -20,7 +20,9 @@
     "build": "npm run core:build && npm -w dragodinde-web run build",
     "build:server": "npm run core:build && tsc -p tsconfig.build.json",
     "typecheck": "npm run core:build && tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "format": "biome format --write .",
+    "format:check": "biome format ."
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.73",
@@ -37,6 +39,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.0",
     "@effect/vitest": "0.29.0",
     "@types/better-sqlite3": "7.6.13",
     "@types/node": "25.9.3",
