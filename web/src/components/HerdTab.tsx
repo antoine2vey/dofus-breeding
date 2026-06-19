@@ -174,7 +174,7 @@ export function HerdTab({
   return (
     <div className="pane planner">
       <div className="pane-head">
-        <h2>🐴 Cheptel</h2>
+        <h2>🐴 Stock</h2>
         <span className="muted">
           {mounts.length} dragodindes · {fecondeMounts.length} fécondes
         </span>
