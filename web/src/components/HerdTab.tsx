@@ -1,5 +1,5 @@
 import type { NameParts } from '@dd/core'
-import { buildName, COLOR_BY_NAME, COLORS, crossOdds, GEN_COLOR, parseName } from '@dd/core'
+import { buildName, COLOR_BY_NAME, COLORS, GEN_COLOR, parseName } from '@dd/core'
 import { useMemo, useState } from 'react'
 import { api } from '../api'
 import type { Dragodinde, Enclos, ImportRow, ReproStatus, Sex } from '../types'
@@ -33,25 +33,6 @@ export function HerdTab({
     const inStable = stable.map((d) => ({ ...d, enclosName: 'Étable' }))
     return [...inStable, ...inEnclos]
   }, [enclos, stable])
-  const byId = useMemo(() => new Map(mounts.map((m) => [m.id, m])), [mounts])
-
-  // Seed-entry form
-  const [seedColor, setSeedColor] = useState('Amande')
-  const [seedSex, setSeedSex] = useState<Sex>('F')
-  const [seedStatus, setSeedStatus] = useState<ReproStatus>('fertile')
-
-  // Record-cross form
-  const [aId, setAId] = useState<number | ''>('')
-  const [bId, setBId] = useState<number | ''>('')
-  const [level, setLevel] = useState(60)
-  const [optima, setOptima] = useState(false)
-  const [babyColor, setBabyColor] = useState('')
-  const [babySex, setBabySex] = useState<Sex>('F')
-
-  // Clonage form
-  const [cloneAId, setCloneAId] = useState<number | ''>('')
-  const [cloneBId, setCloneBId] = useState<number | ''>('')
-  const [cloneSurvivorId, setCloneSurvivorId] = useState<number | ''>('')
 
   // Import (paste in-game names) form
   const [importText, setImportText] = useState('')
@@ -73,18 +54,6 @@ export function HerdTab({
   const [bulkMsg, setBulkMsg] = useState('')
   const [bulkDest, setBulkDest] = useState<number | 'stable'>('stable')
 
-  const a = aId !== '' ? byId.get(aId) : undefined
-  const b = bId !== '' ? byId.get(bId) : undefined
-  const odds =
-    a && b && a.color && b.color
-      ? crossOdds(
-          { race: a.color, grandparents: [...a.grandparents] },
-          { race: b.color, grandparents: [...b.grandparents] },
-          2 * level,
-          optima
-        )
-      : null
-
   const { busy, run } = useMutation(onChanged)
   const patch = (id: number, body: Partial<Dragodinde>) => run(api.patchDragodinde(id, body))
   const move = (id: number, enclosId: number | null) => run(api.moveDragodinde(id, enclosId))
@@ -101,8 +70,6 @@ export function HerdTab({
 
   // Only FÉCONDE mounts can breed now; FERTILE ones still need their gauges raised.
   const fecondeMounts = mounts.filter((m) => m.status === 'feconde')
-  const labelOf = (m: Mount) =>
-    `${m.name} · ${m.color || '(sans couleur)'} · ${m.sex === 'F' ? '♀' : '♂'}`
 
   // ── Filtering + selection ──────────────────────────────────────────────
   const needle = fText.trim().toLowerCase()
@@ -214,17 +181,6 @@ export function HerdTab({
     )
   }
 
-  // Clonage: two same-generation steriles go in, ONE survives (refreshed to fertile, keeps its
-  // sex/colour/lineage); the other is consumed. The user picks which one survives.
-  const steriles = mounts.filter((m) => m.status === 'sterile' && m.color && !m.keeper)
-  const cloneA = cloneAId !== '' ? byId.get(cloneAId) : undefined
-  const cloneB = cloneBId !== '' ? byId.get(cloneBId) : undefined
-  // Generations with ≥2 steriles (so a clone is possible); surface only those candidates for A.
-  const sterileByGen = new Map<number, number>()
-  for (const m of steriles)
-    sterileByGen.set(genOf(m.color), (sterileByGen.get(genOf(m.color)) ?? 0) + 1)
-  const clonableSteriles = steriles.filter((m) => (sterileByGen.get(genOf(m.color)) ?? 0) >= 2)
-
   return (
     <div className="pane planner">
       <div className="pane-head">
@@ -331,274 +287,6 @@ export function HerdTab({
             ))}
           </tbody>
         </table>
-      )}
-
-      {/* Seed entry */}
-      <div className="policy-head" style={{ marginTop: 16 }}>
-        <span>Ajouter une monture</span>
-        <span className="muted">Gen 1 capturée ou stock existant — arrive dans l'étable</span>
-      </div>
-      <div className="plan-controls">
-        <label>
-          Couleur
-          <select value={seedColor} onChange={(e) => setSeedColor(e.target.value)}>
-            {RACES.map((r) => (
-              <option key={r} value={r}>
-                {r}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Sexe
-          <select value={seedSex} onChange={(e) => setSeedSex(e.target.value as Sex)}>
-            <option value="F">♀ femelle</option>
-            <option value="M">♂ mâle</option>
-          </select>
-        </label>
-        <label>
-          État
-          <select value={seedStatus} onChange={(e) => setSeedStatus(e.target.value as ReproStatus)}>
-            {STATUS.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          disabled={busy}
-          onClick={() =>
-            run(
-              api.addDragodinde({
-                color: seedColor,
-                sex: seedSex,
-                status: seedStatus,
-                name: buildName({ color: seedColor, sex: seedSex, keeper: false })
-              })
-            )
-          }
-        >
-          + Ajouter
-        </button>
-      </div>
-
-      {/* Record cross */}
-      <div className="policy-head" style={{ marginTop: 16 }}>
-        <span>Enregistrer un croisement</span>
-        <span className="muted">
-          parents <b>féconds</b> uniquement · ils deviennent stériles · généalogie tracée
-        </span>
-      </div>
-      <div className="plan-controls">
-        <label>
-          Parent A
-          <select
-            value={aId}
-            onChange={(e) => {
-              setAId(Number(e.target.value))
-              setBId('')
-            }}
-          >
-            <option value="">—</option>
-            {fecondeMounts.map((m) => (
-              <option key={m.id} value={m.id}>
-                {labelOf(m)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Parent B (sexe opposé)
-          <select
-            value={bId}
-            onChange={(e) => setBId(Number(e.target.value))}
-            disabled={aId === ''}
-          >
-            <option value="">—</option>
-            {fecondeMounts
-              .filter((m) => m.id !== aId && (!a || m.sex !== a.sex))
-              .map((m) => (
-                <option key={m.id} value={m.id}>
-                  {labelOf(m)}
-                </option>
-              ))}
-          </select>
-        </label>
-        <label>
-          Niveau parents : <b>{level}</b>
-          <input
-            type="number"
-            min={1}
-            max={200}
-            value={level}
-            onChange={(e) =>
-              setLevel(Math.min(200, Math.max(1, Math.floor(Number(e.target.value) || 1))))
-            }
-          />
-        </label>
-        <label className="chk">
-          <input type="checkbox" checked={optima} onChange={(e) => setOptima(e.target.checked)} />{' '}
-          Optimakina
-        </label>
-      </div>
-
-      {a && b && (
-        <div className="decode-panel">
-          {odds ? (
-            <>
-              <div className="muted small">
-                Probabilités (cible gen {odds.targetGen}, p {Math.round(odds.pTarget * 100)}%) —
-                choisis ce que tu as <b>réellement</b> obtenu :
-              </div>
-              <div className="map-chips">
-                {odds.outcomes
-                  .filter((o) => o.prob > 0.005)
-                  .map((o) => (
-                    <button
-                      key={o.race}
-                      className={'map-chip' + (babyColor === o.race ? ' target' : '')}
-                      onClick={() => setBabyColor(o.race)}
-                    >
-                      <b style={{ color: GEN_COLOR[o.gen] }}>{(o.prob * 100).toFixed(0)}%</b>{' '}
-                      {o.race}
-                    </button>
-                  ))}
-              </div>
-            </>
-          ) : (
-            <div className="muted small">
-              Renseigne la couleur des deux parents pour voir les probabilités. Tu peux quand même
-              enregistrer le bébé ci-dessous.
-            </div>
-          )}
-          <div className="plan-controls" style={{ marginTop: 6 }}>
-            <label>
-              Bébé obtenu
-              <select value={babyColor} onChange={(e) => setBabyColor(e.target.value)}>
-                <option value="">— couleur —</option>
-                {RACES.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Sexe du bébé
-              <select value={babySex} onChange={(e) => setBabySex(e.target.value as Sex)}>
-                <option value="F">♀ femelle</option>
-                <option value="M">♂ mâle</option>
-              </select>
-            </label>
-            <button
-              disabled={busy || !babyColor}
-              onClick={() =>
-                run(
-                  api.breed({
-                    parentAId: Number(aId),
-                    parentBId: Number(bId),
-                    color: babyColor,
-                    sex: babySex,
-                    name: buildName({
-                      color: babyColor,
-                      sex: babySex,
-                      keeper: false,
-                      grandparents: [a.color, b.color].filter(Boolean)
-                    })
-                  })
-                ).then(() => {
-                  setBabyColor('')
-                  setAId('')
-                  setBId('')
-                })
-              }
-            >
-              ✓ Enregistrer le bébé
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Clonage */}
-      <div className="policy-head" style={{ marginTop: 16 }}>
-        <span>♻ Clonage</span>
-        <span className="muted">
-          2 stériles de même génération → 1 survivante (redevient fertile, jauges à 0)
-        </span>
-      </div>
-      {clonableSteriles.length === 0 ? (
-        <div className="muted small">
-          Aucune paire clonable. Le clonage prend <b>deux stériles de la même génération</b> ; une
-          seule survit (redevient fertile en gardant sexe/couleur/lignée), l'autre est détruite —
-          marque des montures stériles ci-dessous pour débloquer.
-        </div>
-      ) : (
-        <div className="plan-controls">
-          <label>
-            Stérile A
-            <select
-              value={cloneAId}
-              onChange={(e) => {
-                setCloneAId(Number(e.target.value))
-                setCloneBId('')
-                setCloneSurvivorId(Number(e.target.value))
-              }}
-            >
-              <option value="">—</option>
-              {clonableSteriles.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {labelOf(m)} · gen {genOf(m.color)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Stérile B (même génération)
-            <select
-              value={cloneBId}
-              onChange={(e) => setCloneBId(Number(e.target.value))}
-              disabled={cloneAId === ''}
-            >
-              <option value="">—</option>
-              {steriles
-                .filter(
-                  (m) => m.id !== cloneAId && cloneA && genOf(m.color) === genOf(cloneA.color)
-                )
-                .map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {labelOf(m)} · gen {genOf(m.color)}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <label>
-            Survivante
-            <select
-              value={cloneSurvivorId}
-              onChange={(e) => setCloneSurvivorId(Number(e.target.value))}
-              disabled={!cloneA || !cloneB}
-            >
-              {cloneA && <option value={cloneA.id}>{labelOf(cloneA)}</option>}
-              {cloneB && <option value={cloneB.id}>{labelOf(cloneB)}</option>}
-            </select>
-          </label>
-          <button
-            disabled={busy || !cloneA || !cloneB || cloneSurvivorId === ''}
-            onClick={() => {
-              const survivorId = Number(cloneSurvivorId)
-              const consumedId =
-                survivorId === Number(cloneAId) ? Number(cloneBId) : Number(cloneAId)
-              run(api.clone({ survivorId, consumedId })).then(() => {
-                setCloneAId('')
-                setCloneBId('')
-                setCloneSurvivorId('')
-              })
-            }}
-          >
-            ♻ Cloner
-          </button>
-        </div>
       )}
 
       {/* Herd list */}
