@@ -1,6 +1,7 @@
 import { SqlClient } from "@effect/sql";
 import { COLOR_BY_NAME, buildName } from "@dd/core";
 import { Effect, Option } from "effect";
+import { requireUserId } from "./tenant.js";
 import {
   type Dragodinde,
   type Enclos,
@@ -275,8 +276,25 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
     `;
     yield* sql`INSERT OR IGNORE INTO settings (id, webhook_url) VALUES (1, '')`;
 
-    // Succès: colours whose in-game achievement is already unlocked (a set, independent of cheptel).
-    yield* sql`CREATE TABLE IF NOT EXISTS achievement (color TEXT PRIMARY KEY NOT NULL)`;
+    // Succès: colours whose in-game achievement is unlocked — per user (composite PK).
+    yield* sql`CREATE TABLE IF NOT EXISTS achievement (user_id TEXT, color TEXT NOT NULL, PRIMARY KEY (user_id, color))`;
+
+    // ── Multi-user (Phase 2): every cheptel table carries the owning user (a Better Auth user id).
+    // Pre-existing rows get user_id = NULL (orphans); the seed owner claims them on first login.
+    const enclosCols = yield* sql<{ name: string }>`SELECT name FROM pragma_table_info('enclos')`;
+    if (!enclosCols.some((c) => c.name === "user_id"))
+      yield* sql.unsafe(`ALTER TABLE enclos ADD COLUMN user_id TEXT`);
+    if (!haveCol.has("user_id")) yield* sql.unsafe(`ALTER TABLE dragodinde ADD COLUMN user_id TEXT`);
+    yield* sql`CREATE INDEX IF NOT EXISTS idx_enclos_user ON enclos(user_id)`;
+    yield* sql`CREATE INDEX IF NOT EXISTS idx_dragodinde_user ON dragodinde(user_id)`;
+    // Rebuild an old single-PK achievement (color only) into the composite (user_id, color) form.
+    const achCols = yield* sql<{ name: string }>`SELECT name FROM pragma_table_info('achievement')`;
+    if (!achCols.some((c) => c.name === "user_id")) {
+      yield* sql`ALTER TABLE achievement RENAME TO achievement_old`;
+      yield* sql`CREATE TABLE achievement (user_id TEXT, color TEXT NOT NULL, PRIMARY KEY (user_id, color))`;
+      yield* sql`INSERT INTO achievement (user_id, color) SELECT NULL, color FROM achievement_old`;
+      yield* sql`DROP TABLE achievement_old`;
+    }
 
     const writeEnclos = (e: Enclos) => sql`
       UPDATE enclos SET
@@ -323,6 +341,7 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
     }
     const insertDrago = (opts: InsertOpts) =>
       Effect.gen(function* () {
+        const uid = yield* requireUserId;
         const gps = opts.grandparents ?? [];
         const status = opts.status ?? "fertile";
         const sex: Sex = opts.sex ?? "F";
@@ -335,65 +354,97 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
             : "Dragodinde");
         const rows = yield* sql<DragoRow>`
           INSERT INTO dragodinde
-            (enclos_id, name, color, sex, status, fertile, keeper, parent_a_id, parent_b_id, grand_a, grand_b)
+            (user_id, enclos_id, name, color, sex, status, fertile, keeper, parent_a_id, parent_b_id, grand_a, grand_b)
           VALUES (
-            ${opts.enclosId ?? null}, ${name}, ${opts.color ?? ""}, ${sex},
+            ${uid}, ${opts.enclosId ?? null}, ${name}, ${opts.color ?? ""}, ${sex},
             ${status}, ${status === "sterile" ? 0 : 1}, ${opts.keeper ? 1 : 0},
             ${opts.parentA ?? null}, ${opts.parentB ?? null}, ${gps[0] ?? null}, ${gps[1] ?? null}
           ) RETURNING *
         `;
         // Registering a mount of a colour means you've obtained it in-game → its succès is
-        // unlocked. Auto-mark it (idempotent) so the planner stops counting it toward the goal.
+        // unlocked. Auto-mark it for this user (idempotent) so the planner stops counting it.
         if (opts.color && COLOR_BY_NAME.has(opts.color))
-          yield* sql`INSERT OR IGNORE INTO achievement (color) VALUES (${opts.color})`;
+          yield* sql`INSERT OR IGNORE INTO achievement (user_id, color) VALUES (${uid}, ${opts.color})`;
         return dragoFromRow(rows[0]);
       });
 
+    /** Build the enclos list (with their mounts). userFilter null = everyone (the system/ticker view). */
+    const loadEnclos = (userFilter: string | null) =>
+      Effect.gen(function* () {
+        const enclosRows =
+          userFilter === null
+            ? yield* sql<EnclosRow>`SELECT * FROM enclos ORDER BY id`
+            : yield* sql<EnclosRow>`SELECT * FROM enclos WHERE user_id = ${userFilter} ORDER BY id`;
+        const dragoRows =
+          userFilter === null
+            ? yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE enclos_id IS NOT NULL ORDER BY id`
+            : yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE enclos_id IS NOT NULL AND user_id = ${userFilter} ORDER BY id`;
+        const byEnclos = new Map<number, Array<Dragodinde>>();
+        for (const r of dragoRows) {
+          if (r.enclos_id == null) continue;
+          const list = byEnclos.get(r.enclos_id) ?? [];
+          list.push(dragoFromRow(r));
+          byEnclos.set(r.enclos_id, list);
+        }
+        return enclosRows.map(
+          (r): Enclos => ({
+            id: r.id,
+            name: r.name,
+            fuel: fuelFromRow(r),
+            focus: sanitizeFocus(JSON.parse(r.focus) as ReadonlyArray<string>),
+            dragodindes: byEnclos.get(r.id) ?? [],
+          }),
+        );
+      });
+
     const all = Effect.gen(function* () {
-      const enclosRows = yield* sql<EnclosRow>`SELECT * FROM enclos ORDER BY id`;
-      const dragoRows = yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE enclos_id IS NOT NULL ORDER BY id`;
-      const byEnclos = new Map<number, Array<Dragodinde>>();
-      for (const r of dragoRows) {
-        if (r.enclos_id == null) continue;
-        const list = byEnclos.get(r.enclos_id) ?? [];
-        list.push(dragoFromRow(r));
-        byEnclos.set(r.enclos_id, list);
+      const uid = yield* requireUserId;
+      let list = yield* loadEnclos(uid);
+      // Every user starts with one enclos so the tracker is never empty.
+      if (list.length === 0) {
+        yield* createEnclos;
+        list = yield* loadEnclos(uid);
       }
-      return enclosRows.map(
-        (r): Enclos => ({
-          id: r.id,
-          name: r.name,
-          fuel: fuelFromRow(r),
-          focus: sanitizeFocus(JSON.parse(r.focus) as ReadonlyArray<string>),
-          dragodindes: byEnclos.get(r.id) ?? [],
-        }),
-      );
+      return list;
+    });
+    /** All enclos for everyone — the system (ticker) view, no user scoping. */
+    const allSystem = loadEnclos(null);
+
+    /** The stable: this user's mounts not currently placed in an enclos. */
+    const stable = Effect.gen(function* () {
+      const uid = yield* requireUserId;
+      const rows = yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE enclos_id IS NULL AND user_id = ${uid} ORDER BY id`;
+      return rows.map(dragoFromRow);
+    });
+    /** Every mount this user owns, wherever it lives (for the recommender / AI inventory). */
+    const allMounts = Effect.gen(function* () {
+      const uid = yield* requireUserId;
+      const rows = yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE user_id = ${uid} ORDER BY id`;
+      return rows.map(dragoFromRow);
     });
 
-    /** The stable: every mount not currently placed in an enclos. */
-    const stable = sql<DragoRow>`SELECT * FROM dragodinde WHERE enclos_id IS NULL ORDER BY id`.pipe(
-      Effect.map((rows) => rows.map(dragoFromRow)),
-    );
-    /** Every mount, wherever it lives (for the recommender / AI inventory). */
-    const allMounts = sql<DragoRow>`SELECT * FROM dragodinde ORDER BY id`.pipe(
-      Effect.map((rows) => rows.map(dragoFromRow)),
-    );
-
-    const countEnclos = sql<{ n: number }>`SELECT COUNT(*) AS n FROM enclos`.pipe(
-      Effect.map((rows) => rows[0]?.n ?? 0),
-    );
+    const countEnclos = Effect.gen(function* () {
+      const uid = yield* requireUserId;
+      const rows = yield* sql<{ n: number }>`SELECT COUNT(*) AS n FROM enclos WHERE user_id = ${uid}`;
+      return rows[0]?.n ?? 0;
+    });
     const countDragos = (enclosId: number) =>
-      sql<{ n: number }>`SELECT COUNT(*) AS n FROM dragodinde WHERE enclos_id = ${enclosId}`.pipe(
-        Effect.map((rows) => rows[0]?.n ?? 0),
-      );
-    const countStable = sql<{ n: number }>`SELECT COUNT(*) AS n FROM dragodinde WHERE enclos_id IS NULL`.pipe(
-      Effect.map((rows) => rows[0]?.n ?? 0),
-    );
+      Effect.gen(function* () {
+        const uid = yield* requireUserId;
+        const rows = yield* sql<{ n: number }>`SELECT COUNT(*) AS n FROM dragodinde WHERE enclos_id = ${enclosId} AND user_id = ${uid}`;
+        return rows[0]?.n ?? 0;
+      });
+    const countStable = Effect.gen(function* () {
+      const uid = yield* requireUserId;
+      const rows = yield* sql<{ n: number }>`SELECT COUNT(*) AS n FROM dragodinde WHERE enclos_id IS NULL AND user_id = ${uid}`;
+      return rows[0]?.n ?? 0;
+    });
 
     const createEnclos = Effect.gen(function* () {
+      const uid = yield* requireUserId;
       if ((yield* countEnclos) >= MAX_ENCLOS) return Option.none<Enclos>();
       const rows = yield* sql<{ id: number }>`
-        INSERT INTO enclos (name) VALUES (${"Enclosure"}) RETURNING id
+        INSERT INTO enclos (name, user_id) VALUES (${"Enclosure"}, ${uid}) RETURNING id
       `;
       const id = rows[0].id;
       yield* sql`UPDATE enclos SET name = ${`Enclosure ${id}`} WHERE id = ${id}`;
@@ -408,16 +459,18 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
 
     const removeEnclos = (id: number) =>
       Effect.gen(function* () {
+        const uid = yield* requireUserId;
         if ((yield* countEnclos) <= 1) return false;
         // Mounts inside go back to the stable (not destroyed) — they're your collection.
-        yield* sql`UPDATE dragodinde SET enclos_id = NULL WHERE enclos_id = ${id}`;
-        yield* sql`DELETE FROM enclos WHERE id = ${id}`;
+        yield* sql`UPDATE dragodinde SET enclos_id = NULL WHERE enclos_id = ${id} AND user_id = ${uid}`;
+        yield* sql`DELETE FROM enclos WHERE id = ${id} AND user_id = ${uid}`;
         return true;
       });
 
     const patchEnclos = (id: number, body: EnclosPatch) =>
       Effect.gen(function* () {
-        const rows = yield* sql<EnclosRow>`SELECT * FROM enclos WHERE id = ${id}`;
+        const uid = yield* requireUserId;
+        const rows = yield* sql<EnclosRow>`SELECT * FROM enclos WHERE id = ${id} AND user_id = ${uid}`;
         if (!rows[0]) return false;
         const r = rows[0];
         const fuel = fuelFromRow(r);
@@ -436,7 +489,7 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
         // Focus changed -> resync each dragodinde's done-state (re-arm if newly
         // unsatisfied; mark satisfied if it already meets the new focus -> no ping).
         if (Array.isArray(body.focus)) {
-          const dragos = yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE enclos_id = ${id}`;
+          const dragos = yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE enclos_id = ${id} AND user_id = ${uid}`;
           for (const dr of dragos) {
             const d = dragoFromRow(dr);
             const synced = withDoneState(d, focus);
@@ -465,8 +518,9 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
     const recordCross = (input: CrossInput) =>
       sql.withTransaction(
         Effect.gen(function* () {
+          const uid = yield* requireUserId;
           const parents = yield* sql<DragoRow>`
-            SELECT * FROM dragodinde WHERE id IN (${input.parentAId}, ${input.parentBId})
+            SELECT * FROM dragodinde WHERE id IN (${input.parentAId}, ${input.parentBId}) AND user_id = ${uid}
           `;
           const a = parents.find((p) => p.id === input.parentAId);
           const b = parents.find((p) => p.id === input.parentBId);
@@ -486,7 +540,7 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
             grandparents: [a.color, b.color].filter((c) => !!c),
           });
           yield* sql`UPDATE dragodinde SET status = 'sterile', fertile = 0, enclos_id = NULL
-                     WHERE id IN (${input.parentAId}, ${input.parentBId})`;
+                     WHERE id IN (${input.parentAId}, ${input.parentBId}) AND user_id = ${uid}`;
           return Option.some(baby);
         }),
       );
@@ -498,8 +552,9 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
       sql.withTransaction(
         Effect.gen(function* () {
           if (input.survivorId === input.consumedId) return Option.none<Dragodinde>();
+          const uid = yield* requireUserId;
           const rows = yield* sql<DragoRow>`
-            SELECT * FROM dragodinde WHERE id IN (${input.survivorId}, ${input.consumedId})
+            SELECT * FROM dragodinde WHERE id IN (${input.survivorId}, ${input.consumedId}) AND user_id = ${uid}
           `;
           const survivor = rows.find((p) => p.id === input.survivorId);
           const consumed = rows.find((p) => p.id === input.consumedId);
@@ -511,14 +566,14 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
           const gen = genOf(survivor.color);
           if (gen === 0 || gen !== genOf(consumed.color)) return Option.none<Dragodinde>();
           // Consume the other; refresh the survivor in place (fertile again, gauges to 0).
-          yield* sql`DELETE FROM dragodinde WHERE id = ${input.consumedId}`;
+          yield* sql`DELETE FROM dragodinde WHERE id = ${input.consumedId} AND user_id = ${uid}`;
           yield* sql`
             UPDATE dragodinde
             SET status = 'fertile', fertile = 1, notified = 0,
                 stat_endurance = 0, stat_maturite = 0, stat_amour = 0, stat_serenity = 0
-            WHERE id = ${input.survivorId}
+            WHERE id = ${input.survivorId} AND user_id = ${uid}
           `;
-          const after = yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE id = ${input.survivorId}`;
+          const after = yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE id = ${input.survivorId} AND user_id = ${uid}`;
           return Option.some(dragoFromRow(after[0]));
         }),
       );
@@ -529,10 +584,11 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
     const importMounts = (mounts: ReadonlyArray<ImportRow>, enclosId: number | null) =>
       sql.withTransaction(
         Effect.gen(function* () {
+          const uid = yield* requireUserId;
           let target = enclosId;
           if (target !== null) {
-            const exists = yield* sql<{ id: number }>`SELECT id FROM enclos WHERE id = ${target}`;
-            if (!exists[0]) target = null; // unknown enclos → fall back to the stable
+            const exists = yield* sql<{ id: number }>`SELECT id FROM enclos WHERE id = ${target} AND user_id = ${uid}`;
+            if (!exists[0]) target = null; // unknown/foreign enclos → fall back to the stable
           }
           let inEnclos = target !== null ? yield* countDragos(target) : 0;
           let inStable = yield* countStable;
@@ -573,33 +629,36 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
     const moveDrago = (id: number, enclosId: number | null) =>
       sql.withTransaction(
         Effect.gen(function* () {
-          const rows = yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE id = ${id}`;
+          const uid = yield* requireUserId;
+          const rows = yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE id = ${id} AND user_id = ${uid}`;
           if (!rows[0]) return Option.none<Dragodinde>();
           if (enclosId !== null) {
-            const exists = yield* sql<{ id: number }>`SELECT id FROM enclos WHERE id = ${enclosId}`;
+            const exists = yield* sql<{ id: number }>`SELECT id FROM enclos WHERE id = ${enclosId} AND user_id = ${uid}`;
             if (!exists[0]) return Option.none<Dragodinde>();
             if (rows[0].enclos_id !== enclosId && (yield* countDragos(enclosId)) >= MAX_DRAGODINDES)
               return Option.none<Dragodinde>();
           }
-          yield* sql`UPDATE dragodinde SET enclos_id = ${enclosId} WHERE id = ${id}`;
-          const after = yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE id = ${id}`;
+          yield* sql`UPDATE dragodinde SET enclos_id = ${enclosId} WHERE id = ${id} AND user_id = ${uid}`;
+          const after = yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE id = ${id} AND user_id = ${uid}`;
           return Option.some(dragoFromRow(after[0]));
         }),
       );
 
     const removeDrago = (id: number) =>
       Effect.gen(function* () {
-        const rows = yield* sql<{ id: number }>`SELECT id FROM dragodinde WHERE id = ${id}`;
+        const uid = yield* requireUserId;
+        const rows = yield* sql<{ id: number }>`SELECT id FROM dragodinde WHERE id = ${id} AND user_id = ${uid}`;
         if (!rows[0]) return false;
-        yield* sql`DELETE FROM dragodinde WHERE id = ${id}`;
+        yield* sql`DELETE FROM dragodinde WHERE id = ${id} AND user_id = ${uid}`;
         return true;
       });
 
     const patchDrago = (id: number, body: DragoPatch) =>
       Effect.gen(function* () {
+        const uid = yield* requireUserId;
         const rows = yield* sql<DragoRow & { focus: string | null }>`
           SELECT d.*, e.focus AS focus FROM dragodinde d
-          LEFT JOIN enclos e ON e.id = d.enclos_id WHERE d.id = ${id}
+          LEFT JOIN enclos e ON e.id = d.enclos_id WHERE d.id = ${id} AND d.user_id = ${uid}
         `;
         if (!rows[0]) return Option.none<Dragodinde>();
         // Stable mounts (no enclos) have no focus — done-state is vacuously false there.
@@ -644,29 +703,30 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
     const moveMany = (ids: ReadonlyArray<number>, enclosId: number | null) =>
       sql.withTransaction(
         Effect.gen(function* () {
+          const uid = yield* requireUserId;
           const movedIds: number[] = [];
           let skipped = 0;
           if (enclosId === null) {
             for (const id of ids) {
-              const cur = yield* sql<{ id: number }>`SELECT id FROM dragodinde WHERE id = ${id}`;
+              const cur = yield* sql<{ id: number }>`SELECT id FROM dragodinde WHERE id = ${id} AND user_id = ${uid}`;
               if (!cur[0]) continue;
-              yield* sql`UPDATE dragodinde SET enclos_id = NULL WHERE id = ${id}`;
+              yield* sql`UPDATE dragodinde SET enclos_id = NULL WHERE id = ${id} AND user_id = ${uid}`;
               movedIds.push(id);
             }
             return { movedIds, skipped };
           }
-          const exists = yield* sql<{ id: number }>`SELECT id FROM enclos WHERE id = ${enclosId}`;
+          const exists = yield* sql<{ id: number }>`SELECT id FROM enclos WHERE id = ${enclosId} AND user_id = ${uid}`;
           if (!exists[0]) return { movedIds, skipped: ids.length };
           let count = yield* countDragos(enclosId);
           for (const id of ids) {
-            const cur = yield* sql<{ enclos_id: number | null }>`SELECT enclos_id FROM dragodinde WHERE id = ${id}`;
-            if (!cur[0]) continue; // gone
+            const cur = yield* sql<{ enclos_id: number | null }>`SELECT enclos_id FROM dragodinde WHERE id = ${id} AND user_id = ${uid}`;
+            if (!cur[0]) continue; // gone or not yours
             if (cur[0].enclos_id === enclosId) continue; // already there — no-op
             if (count >= MAX_DRAGODINDES) {
               skipped++;
               continue;
             }
-            yield* sql`UPDATE dragodinde SET enclos_id = ${enclosId} WHERE id = ${id}`;
+            yield* sql`UPDATE dragodinde SET enclos_id = ${enclosId} WHERE id = ${id} AND user_id = ${uid}`;
             count++;
             movedIds.push(id);
           }
@@ -694,10 +754,10 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
         }),
       );
 
-    /** Advance every enclos one tick; return the dragodindes that just completed. */
+    /** Advance every enclos one tick (all users — a system actor); return what just completed. */
     const tickAll = sql.withTransaction(
       Effect.gen(function* () {
-        const list = yield* all;
+        const list = yield* allSystem;
         const completed: Array<CompletedItem> = [];
         for (const e of list) {
           const result = tickEnclos(e);
@@ -726,21 +786,53 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
     const setWebhook = (url: string) =>
       sql`UPDATE settings SET webhook_url = ${url} WHERE id = 1`.pipe(Effect.asVoid);
 
-    const getAchievements = sql<{ color: string }>`SELECT color FROM achievement`.pipe(
-      Effect.map((rows) => rows.map((r) => r.color)),
-    );
-    /** Replace the whole succès set (only known colours are stored). */
+    const getAchievements = Effect.gen(function* () {
+      const uid = yield* requireUserId;
+      const rows = yield* sql<{ color: string }>`SELECT color FROM achievement WHERE user_id = ${uid}`;
+      return rows.map((r) => r.color);
+    });
+    /** Replace this user's whole succès set (only known colours are stored). */
     const setAchievements = (colors: ReadonlyArray<string>) =>
       sql.withTransaction(
         Effect.gen(function* () {
+          const uid = yield* requireUserId;
           const valid = [...new Set(colors)].filter((c) => COLOR_BY_NAME.has(c));
-          yield* sql`DELETE FROM achievement`;
-          for (const c of valid) yield* sql`INSERT INTO achievement (color) VALUES (${c})`;
+          yield* sql`DELETE FROM achievement WHERE user_id = ${uid}`;
+          for (const c of valid) yield* sql`INSERT INTO achievement (user_id, color) VALUES (${uid}, ${c})`;
           return valid;
         }),
       );
 
-    if ((yield* countEnclos) === 0) yield* createEnclos;
+    // (Per-user: each user gets their first enclos lazily in `all` — no global startup enclos.)
+
+    // ── Seed migration: the configured owner claims all pre-multi-user (orphan, user_id IS NULL)
+    //    rows on first login. Cheap-skips once there are no orphans left. ──
+    let seedClaimChecked = false;
+    const claimOrphansIfSeedOwner = (userId: string) =>
+      Effect.gen(function* () {
+        if (seedClaimChecked) return;
+        const seedId = process.env.SEED_OWNER_DISCORD_ID;
+        if (!seedId) {
+          seedClaimChecked = true;
+          return;
+        }
+        const orphans = yield* sql<{ n: number }>`SELECT
+          (SELECT COUNT(*) FROM enclos WHERE user_id IS NULL)
+          + (SELECT COUNT(*) FROM dragodinde WHERE user_id IS NULL)
+          + (SELECT COUNT(*) FROM achievement WHERE user_id IS NULL) AS n`;
+        if ((orphans[0]?.n ?? 0) === 0) {
+          seedClaimChecked = true; // nothing left to claim
+          return;
+        }
+        // Owner = the user whose linked Discord account id matches SEED_OWNER_DISCORD_ID.
+        const acc = yield* sql<{ accountId: string }>`
+          SELECT accountId FROM account WHERE userId = ${userId} AND providerId = 'discord'`;
+        if (acc[0]?.accountId !== seedId) return; // not the owner — leave the orphans for them
+        yield* sql`UPDATE enclos SET user_id = ${userId} WHERE user_id IS NULL`;
+        yield* sql`UPDATE dragodinde SET user_id = ${userId} WHERE user_id IS NULL`;
+        yield* sql`UPDATE achievement SET user_id = ${userId} WHERE user_id IS NULL`;
+        seedClaimChecked = true;
+      });
 
     return {
       all,
@@ -764,6 +856,7 @@ export class Repo extends Effect.Service<Repo>()("app/Repo", {
       setWebhook,
       getAchievements,
       setAchievements,
+      claimOrphansIfSeedOwner,
     } as const;
   }),
 }) {}

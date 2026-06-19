@@ -9,7 +9,7 @@ import * as NodeHttpServerRequest from "@effect/platform-node/NodeHttpServerRequ
 import { Config, Effect, Option, Stream } from "effect";
 import { fromNodeHeaders, toNodeHandler } from "better-auth/node";
 import { auth } from "./auth.js";
-import { withUser } from "./tenant.js";
+import { requireUserId, withUser } from "./tenant.js";
 import { fileURLToPath } from "node:url";
 import {
   Repo,
@@ -133,10 +133,9 @@ export const authGate = HttpMiddleware.make((app) =>
       if (Option.isNone(user)) {
         return HttpServerResponse.unsafeJson({ error: "unauthenticated" }, { status: 401 });
       }
-      // #3 foundation: pin the owning user for this request. The Repo doesn't read it yet (its
-      // queries are still global), so data isn't isolated until #3's data-layer scoping + seed
-      // claim + isolation test land. Harmless until then.
-      return yield* withUser(user.value.id, app);
+      const repo = yield* Repo;
+      yield* repo.claimOrphansIfSeedOwner(user.value.id); // one-time: pre-multi-user data → the seed owner
+      return yield* withUser(user.value.id, app); // every Repo query in `app` is now scoped to this user
     }
     return yield* app;
   }),
@@ -333,30 +332,33 @@ const router1 = HttpRouter.empty.pipe(
         optimakina?: boolean;
         clonage?: boolean;
       };
-      // Bridge the AI's plain-async tools to the (Effect) repo. Repo methods close over the SQL
-      // client, so they're R=never and run directly via Effect.runPromise.
+      // Bridge the AI's plain-async tools to the (Effect) repo. The tools run on detached fibers
+      // (Effect.runPromise) that don't inherit this request's user scope, so each re-pins the
+      // current user via withUser — otherwise the Repo's requireUserId would die.
+      const uid = yield* requireUserId;
+      const runScoped = <A, E>(eff: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(withUser(uid, eff));
       const actions: AiActions = {
         getState: async () => {
-          const enclos = await Effect.runPromise(repo.all);
-          const all = await Effect.runPromise(repo.allMounts);
+          const enclos = await runScoped(repo.all);
+          const all = await runScoped(repo.allMounts);
           return {
             mounts: all.map(toAssistMount),
             enclos: enclos.map((e) => ({ id: e.id, name: e.name, focus: [...e.focus], count: e.dragodindes.length })),
           };
         },
         moveMounts: async (mids, enclosId) => {
-          const r = await Effect.runPromise(repo.moveMany(mids, enclosId));
+          const r = await runScoped(repo.moveMany(mids, enclosId));
           return { moved: r.movedIds.length, skipped: r.skipped };
         },
-        setStatus: async (mids, st) => ({ updated: await Effect.runPromise(repo.patchMany(mids, { status: st })) }),
-        setKeeper: async (mids, keeper) => ({ updated: await Effect.runPromise(repo.patchMany(mids, { keeper })) }),
+        setStatus: async (mids, st) => ({ updated: await runScoped(repo.patchMany(mids, { status: st })) }),
+        setKeeper: async (mids, keeper) => ({ updated: await runScoped(repo.patchMany(mids, { keeper })) }),
         recordCross: async (p) =>
-          Option.match(await Effect.runPromise(repo.recordCross(p)), {
+          Option.match(await runScoped(repo.recordCross(p)), {
             onNone: () => ({ ok: false, error: "parents introuvables ou étable pleine" }),
             onSome: (d) => ({ ok: true, babyId: d.id }),
           }),
         recordClone: async (p) =>
-          Option.match(await Effect.runPromise(repo.recordClone(p)), {
+          Option.match(await runScoped(repo.recordClone(p)), {
             onNone: () => ({ ok: false, error: "clonage impossible (deux stériles de même génération requis)" }),
             onSome: (d) => ({ ok: true, cloneId: d.id }),
           }),
@@ -366,16 +368,16 @@ const router1 = HttpRouter.empty.pipe(
           const color = resolveColor(p.color) ?? p.color;
           const name = buildName({ color, sex: p.sex, keeper: false });
           const rows = Array.from({ length: p.count }, () => ({ name, color, sex: p.sex, status: p.status }));
-          const r = await Effect.runPromise(repo.importMounts(rows, null));
+          const r = await runScoped(repo.importMounts(rows, null));
           return { created: r.created.length };
         },
         addEnclos: async () =>
-          Option.match(await Effect.runPromise(repo.createEnclos), {
+          Option.match(await runScoped(repo.createEnclos), {
             onNone: () => ({ ok: false }),
             onSome: (e) => ({ ok: true, id: e.id }),
           }),
-        removeEnclos: async (id) => ({ ok: await Effect.runPromise(repo.removeEnclos(id)) }),
-        deleteMounts: async (mids) => ({ removed: await Effect.runPromise(repo.removeMany(mids)) }),
+        removeEnclos: async (id) => ({ ok: await runScoped(repo.removeEnclos(id)) }),
+        deleteMounts: async (mids) => ({ removed: await runScoped(repo.removeMany(mids)) }),
       };
       const it = ai.reply(body.messages ?? [], {
         targetGen: typeof body.targetGen === "number" ? body.targetGen : 10,

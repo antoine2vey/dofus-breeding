@@ -2,12 +2,15 @@ import { expect, it } from "@effect/vitest";
 import { SqliteClient } from "@effect/sql-sqlite-node";
 import { Effect, Layer, Option } from "effect";
 import { Repo } from "../src/Repo.js";
+import { withUser } from "../src/tenant.js";
 import { STAT_MAX } from "../src/domain.js";
 
 const TestRepo = Repo.Default.pipe(
   Layer.provide(SqliteClient.layer({ filename: ":memory:" })),
 );
-const provide = <A, E>(self: Effect.Effect<A, E, Repo>) => self.pipe(Effect.provide(TestRepo));
+// Every test runs as a single signed-in user; the isolation test below uses multiple.
+const provide = <A, E>(self: Effect.Effect<A, E, Repo>) =>
+  withUser("u-test", self).pipe(Effect.provide(TestRepo));
 
 /** Seed a mount into the stable, then move it into the given enclos (the new two-step flow). */
 const addInEnclos = (enclosId: number) =>
@@ -16,6 +19,44 @@ const addInEnclos = (enclosId: number) =>
     const d = Option.getOrThrow(yield* repo.addDrago());
     return Option.getOrThrow(yield* repo.moveDrago(d.id, enclosId));
   });
+
+it.effect("isolation: each user sees only their own cheptel and cannot touch another's", () =>
+  Effect.gen(function* () {
+    const repo = yield* Repo;
+    // User A: a mount (auto-marks its colour's succès) — and grab A's own enclos id.
+    const a = yield* withUser("user-A", Effect.gen(function* () {
+      const m = Option.getOrThrow(yield* repo.addDrago({ color: "Amande", sex: "F" }));
+      const enclosId = (yield* repo.all)[0].id; // A's auto-created enclos
+      return { mountId: m.id, enclosId };
+    }));
+    // User B: their own, separate mount.
+    const bMountId = yield* withUser("user-B", Effect.gen(function* () {
+      return Option.getOrThrow(yield* repo.addDrago({ color: "Rousse", sex: "M" })).id;
+    }));
+
+    // Each user sees ONLY their own mounts + succès + enclos.
+    yield* withUser("user-A", Effect.gen(function* () {
+      expect((yield* repo.allMounts).map((m) => m.id)).toEqual([a.mountId]);
+      expect(yield* repo.getAchievements).toEqual(["Amande"]);
+    }));
+    yield* withUser("user-B", Effect.gen(function* () {
+      expect((yield* repo.allMounts).map((m) => m.id)).toEqual([bMountId]);
+      expect(yield* repo.getAchievements).toEqual(["Rousse"]); // NOT "Amande"
+      expect((yield* repo.all).every((e) => e.id !== a.enclosId)).toBe(true); // B's enclos ≠ A's
+    }));
+
+    // User A cannot read, mutate, move, or delete user B's mount.
+    yield* withUser("user-A", Effect.gen(function* () {
+      expect(yield* repo.removeDrago(bMountId)).toBe(false);
+      expect(Option.isNone(yield* repo.patchDrago(bMountId, { keeper: true }))).toBe(true);
+      expect(Option.isNone(yield* repo.moveDrago(bMountId, a.enclosId))).toBe(true);
+    }));
+    // …and B's mount is genuinely untouched.
+    yield* withUser("user-B", Effect.gen(function* () {
+      expect((yield* repo.allMounts)[0].keeper).toBe(false);
+    }));
+  }).pipe(Effect.provide(TestRepo)),
+);
 
 it.effect("seeds one enclos (default focus) with NO dragodinde", () =>
   provide(
