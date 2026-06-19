@@ -21,8 +21,8 @@
     "build:server": "npm run core:build && tsc -p tsconfig.build.json",
     "typecheck": "npm run core:build && tsc --noEmit",
     "test": "vitest run",
-    "format": "biome format --write .",
-    "format:check": "biome format ."
+    "format": "biome check --write .",
+    "format:check": "biome check ."
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.73",
