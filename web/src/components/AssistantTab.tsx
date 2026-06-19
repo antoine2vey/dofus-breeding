@@ -292,10 +292,6 @@ export function AssistantTab({
 
   return (
     <div className="pane planner assistant-v2">
-      <div className="pane-head">
-        <h2>🤖 Assistant</h2>
-      </div>
-
       <div className="assistant-split">
         <div className="assistant-main">
           {/* Controls */}
