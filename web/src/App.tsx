@@ -243,7 +243,15 @@ export default function App() {
         aiConfigured={settings.aiConfigured}
       />
 
-      <OnboardingWizard open={wizardOpen} onClose={closeWizard} />
+      <OnboardingWizard
+        open={wizardOpen}
+        onClose={closeWizard}
+        enclos={enclos}
+        onImported={() => {
+          refresh()
+          setWizardOpen(false)
+        }}
+      />
     </>
   )
 }

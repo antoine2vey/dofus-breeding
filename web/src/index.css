@@ -79,7 +79,9 @@ body {
   border-radius: 14px;
   padding: 26px 28px 18px;
   width: 100%;
-  max-width: 540px;
+  max-width: 640px;
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
 }
 .onboarding-skip {

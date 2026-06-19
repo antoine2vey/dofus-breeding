@@ -1,12 +1,27 @@
 import { useState } from 'react'
+import type { Enclos } from '../types'
+import { ImportByName } from './ImportByName'
+import { RosterBuilder } from './RosterBuilder'
 
-const STEPS = 2
+const STEPS = 4
 
-/** First-run guide, focused on getting data in. Shell only (intro + naming convention); the
- *  roster-builder and import steps are wired in by #10. `open`/`onClose` are controlled by App
- *  (auto-opens on an empty stock, dismissible, re-openable from the header). */
-export function OnboardingWizard({ open, onClose }: { open: boolean; onClose: () => void }) {
+/** First-run guide, focused on getting data in: intro → convention → roster builder → import.
+ *  The builder generates the in-game names (which the user sets in Dofus); the paste-back import
+ *  is the real data entry (the name stays the source of truth). A successful import closes the
+ *  wizard. Controlled by App (auto-opens on an empty stock, dismissible, re-openable). */
+export function OnboardingWizard({
+  open,
+  onClose,
+  enclos,
+  onImported
+}: {
+  open: boolean
+  onClose: () => void
+  enclos: Enclos[]
+  onImported: () => void
+}) {
   const [step, setStep] = useState(0)
+  const [names, setNames] = useState('')
   if (!open) return null
 
   const last = step === STEPS - 1
@@ -30,7 +45,7 @@ export function OnboardingWizard({ open, onClose }: { open: boolean; onClose: ()
             <p>
               Pour démarrer, on importe ton stock <b>par le nom en jeu</b> : tu renommes tes
               montures avec une petite convention, et l'appli en déduit couleur, sexe et lignée.
-              Deux écrans pour voir comment.
+              Quatre étapes pour y arriver.
             </p>
           </div>
         )}
@@ -60,9 +75,29 @@ export function OnboardingWizard({ open, onClose }: { open: boolean; onClose: ()
               </li>
             </ul>
             <p className="muted small">
-              Pas besoin de mémoriser les codes : l'onglet <b>Nommage</b> génère les noms pour toi
-              (et contient la table des 66 couleurs).
+              Pas besoin de mémoriser les codes : l'étape suivante les génère pour toi.
             </p>
+          </div>
+        )}
+
+        {/* The builder stays mounted (display toggle) so the roster survives back/forward nav. */}
+        <div className="onboarding-step" style={{ display: step === 2 ? 'block' : 'none' }}>
+          <h2>Construis ton stock</h2>
+          <p className="muted small">
+            Ajoute tes montures par lot. <b>Copie</b> les noms générés et <b>renomme-les en jeu</b>{' '}
+            sur tes dragodindes — puis passe à l'import.
+          </p>
+          <RosterBuilder onNamesChange={setNames} />
+        </div>
+
+        {step === 3 && (
+          <div className="onboarding-step">
+            <h2>Importe ton stock</h2>
+            <p className="muted small">
+              Les noms du constructeur sont pré-remplis. Vérifie qu'ils sont bien posés en jeu, puis{' '}
+              <b>Analyser</b> et <b>Importer</b> — c'est la liste en jeu qui fait foi.
+            </p>
+            <ImportByName enclos={enclos} onImported={onImported} initialText={names} />
           </div>
         )}
 
@@ -76,11 +111,7 @@ export function OnboardingWizard({ open, onClose }: { open: boolean; onClose: ()
                 ← Précédent
               </button>
             )}
-            {last ? (
-              <button type="button" onClick={onClose}>
-                Compris ✓
-              </button>
-            ) : (
+            {!last && (
               <button type="button" onClick={next}>
                 Suivant →
               </button>
