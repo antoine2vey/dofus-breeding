@@ -3,6 +3,9 @@
   "version": "0.2.0",
   "description": "Dragodinde breeding tracker (Effect + SQLite) with Discord notifications when watched stats hit 20k",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "workspaces": [
     "packages/*",
     "web"

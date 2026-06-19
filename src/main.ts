@@ -1,5 +1,4 @@
 import "dotenv/config"; // load .env into process.env BEFORE any Config is read
-import "./polyfill.js";
 import { HttpServer } from "@effect/platform";
 // Import the specific submodules (not the @effect/platform-node barrel): the barrel re-exports
 // NodeClusterHttp, which needs @effect/cluster — a package we don't use and don't install.
