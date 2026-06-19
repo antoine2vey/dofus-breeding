@@ -160,7 +160,7 @@ export function AssistantTab({
   onChanged: () => void
 }) {
   const [targetGen, setTargetGen] = useState(10)
-  const [level, setLevel] = useState(60)
+  const [level, setLevel] = useState(40)
   const [optimakina, setOptimakina] = useState(false)
   const [clonage, setClonage] = useState(true)
   const [plan, setPlan] = useState<AssistantPlan | null>(null)
