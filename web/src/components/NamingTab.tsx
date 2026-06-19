@@ -1,48 +1,13 @@
-import {
-  BASE_LETTER,
-  buildName,
-  COLOR_CODES,
-  colorCode,
-  GEN_COLOR,
-  genOf,
-  parseName,
-  type Sex,
-  validateInGame
-} from '@dd/core'
+import { BASE_LETTER, COLOR_CODES, GEN_COLOR, genOf, parseName, validateInGame } from '@dd/core'
 import { useMemo, useState } from 'react'
-
-const SEXES: { key: Sex; label: string }[] = [
-  { key: 'F', label: '♀ femelle' },
-  { key: 'M', label: '♂ mâle' }
-]
+import { RosterBuilder } from './RosterBuilder'
 
 export function NamingTab() {
-  // Generator
-  const [color, setColor] = useState('Pourpre')
-  const [sex, setSex] = useState<Sex>('F')
-  const [keeper, setKeeper] = useState(false)
-  const [copied, setCopied] = useState(false)
   // Decoder / validator
   const [probe, setProbe] = useState('')
 
-  const name = buildName({ color, sex, keeper })
-  const nameValid = validateInGame(name)
-
   const probeVal = probe.length ? validateInGame(probe) : null
   const probeParsed = probe.length ? parseName(probe) : null
-
-  // Illustrative sorted run for the selected colour (shows the grouping order).
-  const sample = useMemo(() => {
-    const cc = colorCode(color)
-    return [`${cc}-K-f`, `${cc}-K-m`, `${cc}-f`, `${cc}-m`]
-  }, [color])
-
-  const copy = () => {
-    navigator.clipboard?.writeText(name).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1200)
-    })
-  }
 
   const byGen = useMemo(() => {
     const m = new Map<number, typeof COLOR_CODES>()
@@ -57,67 +22,12 @@ export function NamingTab() {
         <span className="muted">code couleur · sexe · numéro — triable et sans accent</span>
       </div>
 
-      {/* Generator */}
+      {/* Roster builder */}
       <div className="policy-head">
-        <span>Générateur de nom</span>
-        <span className="muted">construis un nom valide à coller en jeu</span>
+        <span>Constructeur de noms</span>
+        <span className="muted">ajoute tes montures par lot → noms à coller en jeu</span>
       </div>
-      <div className="plan-controls">
-        <label>
-          Couleur
-          <select value={color} onChange={(e) => setColor(e.target.value)}>
-            {[...byGen.keys()]
-              .sort((a, b) => a - b)
-              .map((g) => (
-                <optgroup key={g} label={`Génération ${g}`}>
-                  {(byGen.get(g) ?? []).map((c) => (
-                    <option key={c.name} value={c.name}>
-                      {c.name} — {c.code}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-          </select>
-        </label>
-        <label>
-          Sexe
-          <select value={sex} onChange={(e) => setSex(e.target.value as Sex)}>
-            {SEXES.map((s) => (
-              <option key={s.key} value={s.key}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="chk">
-          <input type="checkbox" checked={keeper} onChange={(e) => setKeeper(e.target.checked)} />
-          Keeper (exemplaire à garder)
-        </label>
-      </div>
-
-      <div className="name-output">
-        <code className="name-big">{name}</code>
-        <span className={'pill ' + (nameValid.valid ? 'ok' : 'bad')}>
-          {name.length}/20 {nameValid.valid ? '✓' : '✗'}
-        </span>
-        <button className="mini" onClick={copy}>
-          {copied ? 'copié ✓' : 'copier'}
-        </button>
-        <span className="muted small">
-          {color} (gen {genOf(color)}), {sex === 'F' ? 'femelle' : 'mâle'}
-          {keeper ? ', keeper' : ''}
-        </span>
-      </div>
-      <div className="name-sample muted small">
-        Tri en jeu pour {colorCode(color)} :{' '}
-        {sample.map((s, i) => (
-          <span key={s}>
-            <code>{s}</code>
-            {i < sample.length - 1 ? ' ‹ ' : ''}
-          </span>
-        ))}{' '}
-        — keepers en tête, ♀ avant ♂.
-      </div>
+      <RosterBuilder />
 
       {/* Decoder / validator */}
       <div className="policy-head" style={{ marginTop: 18 }}>
