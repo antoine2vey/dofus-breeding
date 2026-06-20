@@ -6,16 +6,33 @@ services:
     ports:
       # host:container — the container always listens on 3000
       - "${HOST_PORT:-3000}:3000"
-    # DISCORD_WEBHOOK_URL is read from .env (see .env.example) or set it from the ⚙︎ UI.
+    # Values are read from .env (see .env.example) or set from the ⚙︎ UI.
     environment:
       PORT: 3000
       TICK_MS: ${TICK_MS:-10000}
       DATABASE_FILE: /data/data.db
       DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+      # Multi-user auth (Better Auth) + BYOK encryption — required by the app at runtime.
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-}
+      AI_KEY_ENCRYPTION_SECRET: ${AI_KEY_ENCRYPTION_SECRET:-}
+      SEED_OWNER_DISCORD_ID: ${SEED_OWNER_DISCORD_ID:-}
     volumes:
       - dragodinde-data:/data
     restart: unless-stopped
     init: true
+    # Every /api/* (except /api/auth/*) is behind a session now, so the old
+    # /api/state probe always 401s. /api/auth/get-session is unauthenticated and
+    # exercises Better Auth + the DB. Overrides the Dockerfile's HEALTHCHECK.
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/auth/get-session').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
     # hardening — the app only writes to /data (SQLite + WAL); the rest is read-only
     read_only: true
     tmpfs:
@@ -24,6 +41,24 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+
+  # One-off Better Auth schema migration. Reuses the Dockerfile's `build` stage
+  # (full source incl. src/auth.ts + all deps + a writable, root FS) so the CLI
+  # can load the auth config and write to the SAME /data volume the app uses.
+  #   Run:  docker compose run --rm migrate
+  # The `migrate` profile keeps it out of the normal `docker compose up`.
+  # Run it with the app stopped to avoid SQLite write-lock contention.
+  migrate:
+    build:
+      context: .
+      target: build
+    image: dragodinde-notif-migrate:${APP_VERSION:-0.2.0}
+    profiles: ["migrate"]
+    environment:
+      DATABASE_FILE: /data/data.db
+    volumes:
+      - dragodinde-data:/data
+    command: ["npx", "-y", "@better-auth/cli@latest", "migrate", "-y"]
 
 volumes:
   dragodinde-data:
