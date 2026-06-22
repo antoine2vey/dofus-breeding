@@ -9,6 +9,7 @@
 // Pure. The deterministic source of truth for the Assistant; the AI orchestrates on top of it.
 
 import { cheptelAccounting } from './cheptel.js'
+import { type ExtractionCandidate, extractionCandidates } from './extraction.js'
 import { type BreedAction, type InvMount, type ReproStatus, recommend } from './recommend.js'
 import { colorsOf, genOf, type Species } from './species.js'
 
@@ -95,6 +96,8 @@ export interface NextStep {
 export interface AssistantPlan {
   readonly roadmap: Roadmap
   readonly nextStep: NextStep
+  /** Done colours with surplus copies you can extract (sacrifice) for a reward. */
+  readonly extraction: ReadonlyArray<ExtractionCandidate>
 }
 
 // NOTE: single-species. `mounts` must already be filtered to `species`; the enclos `count` is the
@@ -267,5 +270,8 @@ export function assistantPlan(species: Species, input: AssistantInput): Assistan
           summaryParts.join(' · ') || 'Rien à faire ce tour — capture des bases pour amorcer.'
       }
 
-  return { roadmap, nextStep }
+  // Extraction surplus — derived from the same accounting (done colours not needed as parent supply).
+  const extraction = extractionCandidates(species, mounts, acc)
+
+  return { roadmap, nextStep, extraction }
 }

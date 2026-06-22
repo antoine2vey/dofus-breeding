@@ -5,6 +5,7 @@ import type {
   BreedAction,
   CaptureNeed,
   CloneAction,
+  ExtractionCandidate,
   RaiseAction,
   Species
 } from '@dd/core'
@@ -302,6 +303,155 @@ function ArbiterRow({
   )
 }
 
+// ── Extraction: sacrifice surplus "done" mounts for the species' reward item ──
+// Per-colour count stepper (the server resolves WHICH mounts, steriles-first). Opt-in: nothing is
+// selected by default, and "Extraire" asks for an inline confirm before deleting.
+function ExtractionSection({
+  species,
+  candidates,
+  busy,
+  onExtract
+}: {
+  species: Species
+  candidates: ReadonlyArray<ExtractionCandidate>
+  busy: boolean
+  onExtract: (items: { color: string; count: number }[]) => void
+}) {
+  const reward = SPECIES[species].reward
+  const genColor = genColorOf(species)
+  const [sel, setSel] = useState<Record<string, number>>({})
+  const [confirming, setConfirming] = useState(false)
+
+  // Reset the selection whenever the candidate set changes (params, species, after an extraction).
+  const sig = candidates.map((c) => `${c.color}:${c.surplus}`).join('|')
+  useEffect(() => {
+    setSel({})
+    setConfirming(false)
+  }, [sig])
+
+  if (candidates.length === 0) return null
+
+  const setCount = (color: string, n: number, max: number) =>
+    setSel((s) => ({ ...s, [color]: Math.max(0, Math.min(max, Math.floor(n) || 0)) }))
+  const totalMounts = candidates.reduce((n, c) => n + (sel[c.color] ?? 0), 0)
+  const totalReward = candidates.reduce((n, c) => n + (sel[c.color] ?? 0) * c.rewardEach, 0)
+  const selectAll = () => setSel(Object.fromEntries(candidates.map((c) => [c.color, c.surplus])))
+
+  const submit = () => {
+    const items = candidates
+      .map((c) => ({ color: c.color, count: sel[c.color] ?? 0 }))
+      .filter((it) => it.count > 0)
+    if (items.length === 0) return
+    onExtract(items)
+    setConfirming(false)
+  }
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div className="policy-head">
+        <span>
+          ♻ Extraction
+          <img
+            src={reward.image}
+            alt={reward.item}
+            title={reward.item}
+            style={{ width: 16, height: 16, verticalAlign: 'text-bottom', margin: '0 4px' }}
+          />
+        </span>
+        <span className="muted">
+          {candidates.length} couleur(s) extractible(s) ·{' '}
+          {candidates.reduce((n, c) => n + c.surplus * c.rewardEach, 0)} {reward.item} possible(s)
+        </span>
+      </div>
+      <div className="muted small" style={{ margin: '4px 0 8px' }}>
+        Surplus de couleurs déjà obtenues (succès) que le moteur n'utilise pas comme reproducteur.
+        Récompense = génération de la monture. Les montures gardées et la gen 1 sont exclues.
+      </div>
+      <table className="roadmap-table">
+        <tbody>
+          {candidates.map((c) => {
+            const n = sel[c.color] ?? 0
+            return (
+              <tr key={c.color}>
+                <td style={{ color: genColor[c.gen] }}>
+                  {c.color} <span className="muted small">gen {c.gen}</span>
+                </td>
+                <td className="muted small">
+                  surplus {c.surplus}/{c.owned}
+                </td>
+                <td className="sr-act">
+                  <button
+                    className="mini"
+                    disabled={busy || n <= 0}
+                    onClick={() => setCount(c.color, n - 1, c.surplus)}
+                  >
+                    −
+                  </button>
+                  <input
+                    type="number"
+                    min={0}
+                    max={c.surplus}
+                    value={n}
+                    style={{ width: 48, textAlign: 'center' }}
+                    onChange={(e) => setCount(c.color, Number(e.target.value), c.surplus)}
+                  />
+                  <button
+                    className="mini"
+                    disabled={busy || n >= c.surplus}
+                    onClick={() => setCount(c.color, n + 1, c.surplus)}
+                  >
+                    +
+                  </button>
+                </td>
+                <td className="rm-count" style={{ color: n > 0 ? genColor[c.gen] : undefined }}>
+                  {n > 0 ? `${n * c.rewardEach}` : '—'}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+      <div className="step-row" style={{ marginTop: 8 }}>
+        <span className="sr-main">
+          {totalMounts > 0 ? (
+            <>
+              Extraire <b>{totalMounts}</b> monture(s) →{' '}
+              <b>
+                {totalReward} {reward.item}
+              </b>
+            </>
+          ) : (
+            <span className="muted small">Choisis combien extraire par couleur.</span>
+          )}
+        </span>
+        <span className="sr-act">
+          <button className="ghost" disabled={busy} onClick={selectAll}>
+            tout sélectionner
+          </button>
+          {confirming ? (
+            <>
+              <button className="mini" disabled={busy} onClick={submit}>
+                ✓ confirmer
+              </button>
+              <button className="mini" disabled={busy} onClick={() => setConfirming(false)}>
+                annuler
+              </button>
+            </>
+          ) : (
+            <button
+              className="mini"
+              disabled={busy || totalMounts === 0}
+              onClick={() => setConfirming(true)}
+            >
+              ♻ Extraire
+            </button>
+          )}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 export function AssistantTab({
   enclos,
   stable,
@@ -378,6 +528,8 @@ export function AssistantTab({
     act(api.breed({ parentAId: a.aId, parentBId: a.bId, color, sex }))
   const applyClone = (a: CloneAction, survivorId: number) =>
     act(api.clone({ survivorId, consumedId: survivorId === a.aId ? a.bId : a.aId }))
+  const applyExtract = (items: { color: string; count: number }[]) =>
+    act(api.extract({ species: roadmapSpecies, targetGen, level, optimakina, clonage, items }))
   const applyCapture = (species: Species, color: string, count: number, sex: Sex) =>
     act(
       api.importMounts(
@@ -785,6 +937,14 @@ export function AssistantTab({
                   </div>
                 )
               })}
+
+              {/* ── Extraction: sacrifice surplus done mounts for the reward ── */}
+              <ExtractionSection
+                species={roadmapSpecies}
+                candidates={plan.extraction}
+                busy={busy}
+                onExtract={applyExtract}
+              />
             </>
           )}
         </div>

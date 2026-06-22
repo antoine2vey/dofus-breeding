@@ -5,6 +5,8 @@ import {
   arbitrate,
   assistantPlan,
   buildName,
+  cheptelAccounting,
+  extractionCandidates,
   normalizeSpecies,
   recommend,
   resolveColor,
@@ -160,6 +162,13 @@ const router1 = HttpRouter.empty.pipe(
     Effect.gen(function* () {
       const p = yield* HttpRouter.params
       return yield* serveStatic(`assets/${p['name'] ?? ''}`)
+    })
+  ),
+  HttpRouter.get(
+    '/rewards/:name',
+    Effect.gen(function* () {
+      const p = yield* HttpRouter.params
+      return yield* serveStatic(`rewards/${p['name'] ?? ''}`)
     })
   ),
 
@@ -346,6 +355,71 @@ const router1 = HttpRouter.empty.pipe(
         achievements: yield* repo.getAchievements(species)
       })
       return HttpServerResponse.unsafeJson(result)
+    })
+  ),
+
+  // Extraction — sacrifice surplus "done" mounts for the species' reward item. The client sends
+  // colour+count (per the per-colour stepper) plus the same plan params it computed the list with;
+  // the SERVER rebuilds the cheptel, REVALIDATES surplus, resolves which mounts to delete
+  // (steriles first so the plan's best breeders are kept), deletes them, and returns the reward.
+  HttpRouter.post(
+    '/api/extract',
+    Effect.gen(function* () {
+      const repo = yield* Repo
+      const body = (yield* readBody) as {
+        species?: string
+        targetGen?: number
+        level?: number
+        optimakina?: boolean
+        clonage?: boolean
+        items?: { color?: string; count?: number }[]
+      }
+      const species = normalizeSpecies(body.species)
+      const items = Array.isArray(body.items) ? body.items : []
+      const all = yield* repo.allMounts
+      const mounts = all.filter((m) => m.species === species).map(toAssistMount)
+      const acc = cheptelAccounting(species, {
+        mounts,
+        achievements: yield* repo.getAchievements(species),
+        targetGen: typeof body.targetGen === 'number' ? body.targetGen : 10,
+        level: typeof body.level === 'number' ? body.level : 60,
+        optima: body.optimakina === true,
+        clonage: body.clonage !== false
+      })
+      const byColor = new Map(extractionCandidates(species, mounts, acc).map((c) => [c.color, c]))
+
+      // Resolve mounts to delete: steriles first, then fertile, then féconde — so the reserved best
+      // breeders are the ones we keep. Revalidate every requested count against the live surplus.
+      const STATUS_ORDER: Record<string, number> = { sterile: 0, fertile: 1, feconde: 2 }
+      const ids: number[] = []
+      let total = 0
+      for (const it of items) {
+        const color = resolveColor(species, it.color ?? '') ?? it.color ?? ''
+        const cand = byColor.get(color)
+        const count = Math.max(0, Math.floor(it.count ?? 0))
+        if (!cand || count === 0) continue
+        if (count > cand.surplus) {
+          return HttpServerResponse.unsafeJson(
+            { error: `Surplus insuffisant pour ${color} (${cand.surplus} disponible(s)).` },
+            { status: 409 }
+          )
+        }
+        const pool = mounts
+          .filter((m) => m.color === color && !m.keeper)
+          .sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status])
+          .slice(0, count)
+        for (const m of pool) ids.push(m.id)
+        total += count * cand.gen
+      }
+      if (ids.length === 0) {
+        return HttpServerResponse.unsafeJson({ error: 'Rien à extraire.' }, { status: 400 })
+      }
+      const removed = yield* repo.removeMany(ids)
+      return HttpServerResponse.unsafeJson({
+        deletedCount: removed,
+        deletedIds: ids,
+        reward: { item: SPECIES[species].reward.item, total }
+      })
     })
   ),
 

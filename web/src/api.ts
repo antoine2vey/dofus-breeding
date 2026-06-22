@@ -172,6 +172,25 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     }).then((r) => json<AssistantPlan>(r)),
+  /** Extract (sacrifice) surplus done mounts for the species' reward. Server revalidates surplus. */
+  extract: (body: {
+    species: Species
+    targetGen: number
+    level: number
+    optimakina: boolean
+    clonage: boolean
+    items: { color: string; count: number }[]
+  }) =>
+    fetch('/api/extract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then((r) =>
+      json<
+        | { deletedCount: number; deletedIds: number[]; reward: { item: string; total: number } }
+        | { error: string }
+      >(r)
+    ),
 
   setAchievements: (species: Species, colors: string[]) =>
     fetch('/api/achievements', {

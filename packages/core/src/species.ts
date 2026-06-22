@@ -27,6 +27,13 @@ export interface CaptureDef {
   readonly item: string
 }
 
+/** The in-game item granted when a mount of this species is extracted (sacrificed). The amount is
+ *  the mount's generation (see extraction.ts); this is just what you receive and its icon. */
+export interface RewardDef {
+  readonly item: string
+  readonly image: string // path under web/public, e.g. /rewards/dragodinde.png
+}
+
 /** The raw, hand-authored definition of a species (everything that isn't derived). */
 export interface SpeciesDef {
   readonly species: Species
@@ -39,6 +46,7 @@ export interface SpeciesDef {
   /** Pure base colours whose odds base-weight is the rare "2" instead of the monocolore "9". */
   readonly loWeightBases: readonly string[]
   readonly capture: CaptureDef
+  readonly reward: RewardDef
 }
 
 // Per-generation accent palette for the UI. Shared across species (species are distinguished by
@@ -119,7 +127,8 @@ const DEFS: Record<Species, SpeciesDef> = {
       label: 'Capture sauvage',
       location: 'zones de dragodindes sauvages',
       item: 'Filet de capture de dragodinde'
-    }
+    },
+    reward: { item: 'Neurone de dragodinde', image: '/rewards/dragodinde.png' }
   },
   muldo: {
     species: 'muldo',
@@ -133,7 +142,8 @@ const DEFS: Record<Species, SpeciesDef> = {
       label: 'Capture sauvage',
       location: 'Bassin des Muldos (Baie de Sufokia)',
       item: 'Filet de capture de muldo'
-    }
+    },
+    reward: { item: 'Ambre de muldo', image: '/rewards/muldo.png' }
   },
   volkorne: {
     species: 'volkorne',
@@ -147,7 +157,8 @@ const DEFS: Record<Species, SpeciesDef> = {
       label: 'Capture sauvage',
       location: 'Haras de Brâkmar',
       item: 'Filet de capture de volkorne'
-    }
+    },
+    reward: { item: 'Corne de volkorne', image: '/rewards/volkorne.png' }
   }
 }
 
