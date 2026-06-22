@@ -68,8 +68,8 @@ if [ "$PUSH" = "1" ]; then
   sqlite3 "$LOCAL_DB" ".backup '$PUSH_SNAP'"
   check="$(sqlite3 "$PUSH_SNAP" 'PRAGMA integrity_check;' | head -1)"
   [ "$check" = "ok" ] || die "local snapshot failed integrity_check: $check"
-  rows="$(sqlite3 "$PUSH_SNAP" "SELECT count(*) FROM dragodinde;")"
-  say "Local snapshot OK — ${rows} dragodindes, $(du -h "$PUSH_SNAP" | cut -f1). Uploading…"
+  rows="$(sqlite3 "$PUSH_SNAP" "SELECT count(*) FROM mount;" 2>/dev/null || sqlite3 "$PUSH_SNAP" "SELECT count(*) FROM dragodinde;")"
+  say "Local snapshot OK — ${rows} montures, $(du -h "$PUSH_SNAP" | cut -f1). Uploading…"
   scp $SSH_OPTS -q "$PUSH_SNAP" "$REMOTE:$REMOTE_SNAP" || die "scp upload failed"
 
   say "Backing up prod DB, stopping container, swapping in local, restarting…"

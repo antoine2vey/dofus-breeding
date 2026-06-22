@@ -6,10 +6,9 @@
 // times gives the EXPECTED captures (by colour), breedings and clonages to reach the goal,
 // plus which colours the winning line breeds most (the breeding priorities).
 
-import { COLOR_BY_NAME, COLORS } from './colors.js'
 import { crossOdds } from './odds.js'
+import { baseColorsOf, byNameOf, colorsOf, genOf, type Species } from './species.js'
 
-const BASE = ['Amande', 'Dorée', 'Rousse'] as const
 type Sex = 0 | 1
 
 export interface SimMount {
@@ -20,6 +19,7 @@ export interface SimMount {
 }
 
 export interface SimConfig {
+  species: Species
   targetGen: number // reach any colour of this generation (used if targetColor is unset)
   targetColor?: string // produce ONE of this exact colour
   level: number // both parents assumed at this level when crossing
@@ -44,18 +44,20 @@ export interface SimRun {
   climbOffers?: number
 }
 
-const genOf = (race: string) => COLOR_BY_NAME.get(race)?.gen ?? 0
-
 /** Pick a cheap representative target colour of the requested generation to "reach". */
-const targetColorFor = (gen: number): string => {
-  if (gen <= 1) return 'Amande'
-  // Prefer an "X et Rousse" form (Rousse is the cheap leaf) when one exists at this gen.
-  const cands = COLORS.filter((c) => c.gen === gen)
-  return (cands.find((c) => c.parents?.includes('Rousse')) ?? cands[0]).name
+const targetColorFor = (species: Species, gen: number): string => {
+  const bases = baseColorsOf(species)
+  if (gen <= 1) return bases[0]
+  // Prefer a form built off a cheap base leaf when one exists at this gen.
+  const cands = colorsOf(species).filter((c) => c.gen === gen)
+  return (cands.find((c) => c.parents?.some((p) => bases.includes(p))) ?? cands[0]).name
 }
 
 export function simulateOnce(cfg: SimConfig, rng: () => number): SimRun {
-  const captures: Record<string, number> = { Amande: 0, Dorée: 0, Rousse: 0 }
+  const gen = (race: string) => genOf(cfg.species, race)
+  const byName = byNameOf(cfg.species)
+  const captures: Record<string, number> = {}
+  for (const b of baseColorsOf(cfg.species)) captures[b] = 0
   const bred: Record<string, number> = {}
   const clonesByRace: Record<string, number> = {}
   let breedings = 0
@@ -74,6 +76,7 @@ export function simulateOnce(cfg: SimConfig, rng: () => number): SimRun {
     // crossOdds reads `grandparents`; SimMount stores them in `gp` — map them across or the
     // genealogy (and the target generation it implies) is silently ignored.
     const r = crossOdds(
+      cfg.species,
       { race: m.race, grandparents: m.gp },
       { race: f.race, grandparents: f.gp },
       2 * cfg.level,
@@ -93,7 +96,7 @@ export function simulateOnce(cfg: SimConfig, rng: () => number): SimRun {
     const reuse = take(fertile, race)
     if (reuse) return reuse
 
-    if (genOf(race) <= 1) {
+    if (gen(race) <= 1) {
       captures[race] = (captures[race] ?? 0) + 1
       return { race, sex: rng() < 0.5 ? 0 : 1, gp: [], fertile: true }
     }
@@ -111,7 +114,7 @@ export function simulateOnce(cfg: SimConfig, rng: () => number): SimRun {
       }
     }
 
-    const recipe = COLOR_BY_NAME.get(race)!.parents!
+    const recipe = byName.get(race)!.parents!
     // Safety valve against pathological recursion depth (shouldn't trigger; gen<=10).
     const guard = depth > 40
     for (let attempt = 0; ; attempt++) {
@@ -142,10 +145,10 @@ export function simulateOnce(cfg: SimConfig, rng: () => number): SimRun {
     push(m.fertile ? fertile : sterile, { race: m.race, sex: m.sex, gp: m.gp, fertile: m.fertile })
   }
 
-  const target = cfg.targetColor ?? targetColorFor(cfg.targetGen)
+  const target = cfg.targetColor ?? targetColorFor(cfg.species, cfg.targetGen)
   produce(target, 0)
 
-  const totalCaptures = (captures.Amande ?? 0) + (captures.Dorée ?? 0) + (captures.Rousse ?? 0)
+  const totalCaptures = baseColorsOf(cfg.species).reduce((s, b) => s + (captures[b] ?? 0), 0)
   return {
     reached: true,
     captures,
@@ -178,6 +181,7 @@ const pct = (arr: number[], q: number) => {
 const mean = (arr: number[]) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0)
 
 export function monteCarlo(cfg: SimConfig, runs: number, rng: () => number): SimSummary {
+  const gen = (race: string) => genOf(cfg.species, race)
   const all: SimRun[] = []
   for (let i = 0; i < runs; i++) all.push(simulateOnce(cfg, rng))
   const reached = all.filter((r) => r.reached)
@@ -185,7 +189,7 @@ export function monteCarlo(cfg: SimConfig, runs: number, rng: () => number): Sim
 
   const caps = use.map((r) => r.totalCaptures)
   const byRace: Record<string, number> = {}
-  for (const r of BASE) byRace[r] = mean(use.map((x) => x.captures[r] ?? 0))
+  for (const r of baseColorsOf(cfg.species)) byRace[r] = mean(use.map((x) => x.captures[r] ?? 0))
 
   // Mean count of every colour that came into existence per run (bred outcomes + Gen-1 captures).
   const perColor: Record<string, number> = {}
@@ -196,7 +200,7 @@ export function monteCarlo(cfg: SimConfig, runs: number, rng: () => number): Sim
   for (const k of Object.keys(perColor)) perColor[k] /= use.length
 
   const topBred = Object.entries(perColor)
-    .map(([race, m]) => ({ race, gen: genOf(race), mean: m }))
+    .map(([race, m]) => ({ race, gen: gen(race), mean: m }))
     .filter((x) => x.gen >= 2)
     .sort((a, b) => b.gen - a.gen || b.mean - a.mean)
     .slice(0, 16)

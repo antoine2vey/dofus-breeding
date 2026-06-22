@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 // stock-vs-sink-vs-obtained distinctions are pinned in one place.
 describe('cheptelAccounting', () => {
   it('splits usable supply from owned/sink, and folds succès into obtained + the sink only', () => {
-    const acc = cheptelAccounting({
+    const acc = cheptelAccounting('dragodinde', {
       mounts: [
         { color: 'Rousse', status: 'feconde', keeper: false },
         { color: 'Rousse', status: 'sterile', keeper: false }, // owned, not usable
@@ -30,7 +30,7 @@ describe('cheptelAccounting', () => {
 
   it("an unlocked succès satisfies a colour's sink, dropping it from plan demand", () => {
     const allUpToGen2 = COLORS.filter((c) => c.gen <= 2).map((c) => c.name)
-    const withSucces = cheptelAccounting({
+    const withSucces = cheptelAccounting('dragodinde', {
       mounts: [],
       achievements: allUpToGen2,
       targetGen: 2,
@@ -38,7 +38,7 @@ describe('cheptelAccounting', () => {
       optima: true,
       clonage: true
     })
-    const without = cheptelAccounting({
+    const without = cheptelAccounting('dragodinde', {
       mounts: [],
       achievements: [],
       targetGen: 2,

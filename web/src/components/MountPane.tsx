@@ -1,4 +1,5 @@
-import type { Dragodinde, DragoPatch, Enclos, Meta, StatKey } from '../types'
+import { genColorOf, genOf, SPECIES } from '@dd/core'
+import type { DragoPatch, Enclos, Meta, Mount, StatKey } from '../types'
 import { focusedStats, isDone, moodFace } from '../util'
 
 // Short labels live here; colors are derived from meta.fuelBars (single source of truth).
@@ -16,7 +17,7 @@ function StatMini({
   focused,
   onStat
 }: {
-  drago: Dragodinde
+  drago: Mount
   stat: { key: StatKey; label: string }
   meta: Meta
   focused: boolean
@@ -92,7 +93,7 @@ function DragoRow({
   onMove,
   onDelete
 }: {
-  drago: Dragodinde
+  drago: Mount
   focus: Enclos['focus']
   meta: Meta
   onPatch: (id: number, body: DragoPatch) => void
@@ -109,10 +110,14 @@ function DragoRow({
   return (
     <div className={'drago-row' + (done ? ' done' : '')}>
       <div className="dr-head">
+        <span className="dr-species" title={SPECIES[drago.species].label}>
+          {SPECIES[drago.species].icon}
+        </span>
         <input
           className="dr-name"
           defaultValue={drago.name}
           key={drago.name}
+          style={{ color: genColorOf(drago.species)[genOf(drago.species, drago.color)] }}
           onBlur={(e) => {
             if (e.target.value !== drago.name) onPatch(drago.id, { name: e.target.value })
           }}
@@ -150,7 +155,7 @@ function DragoRow({
   )
 }
 
-export function DragodindePane({
+export function MountPane({
   enclos,
   meta,
   onDragoPatch,
@@ -173,19 +178,19 @@ export function DragodindePane({
     <section className="pane">
       <div className="pane-head">
         <h2>
-          {enclos.name} · Dragodindes{' '}
+          {enclos.name} · Montures{' '}
           <span className="muted">
-            ({enclos.dragodindes.length}/{meta.maxDragodindes})
+            ({enclos.mounts.length}/{meta.maxMounts})
           </span>
         </h2>
       </div>
       <div className="drago-list">
-        {enclos.dragodindes.length === 0 && (
+        {enclos.mounts.length === 0 && (
           <div className="empty">
             Vide — glisse une monture de l'étable ici pour monter ses jauges.
           </div>
         )}
-        {enclos.dragodindes.map((d) => (
+        {enclos.mounts.map((d) => (
           <DragoRow
             key={d.id}
             drago={d}

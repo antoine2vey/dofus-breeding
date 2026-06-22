@@ -1,12 +1,10 @@
-import { COLOR_BY_NAME, COLORS, GEN_COLOR } from '@dd/core'
+import type { Species } from '@dd/core'
+import { colorsOf, genColorOf, genOf, SPECIES, SPECIES_LIST } from '@dd/core'
 import { useMemo, useState } from 'react'
 import { api } from '../api'
 import type { Dragodinde, Enclos, ReproStatus, Sex } from '../types'
 import { useMutation } from '../useMutation'
 import { ImportByName } from './ImportByName'
-
-const RACES = COLORS.map((c) => c.name)
-const genOf = (color: string) => COLOR_BY_NAME.get(color)?.gen ?? 0
 
 // In-game reproduction states, ordered most→least useful for breeding.
 const STATUS: { value: ReproStatus; label: string }[] = [
@@ -29,10 +27,29 @@ export function HerdTab({
   onChanged: () => void
 }) {
   const mounts: Mount[] = useMemo(() => {
-    const inEnclos = enclos.flatMap((e) => e.dragodindes.map((d) => ({ ...d, enclosName: e.name })))
+    const inEnclos = enclos.flatMap((e) => e.mounts.map((d) => ({ ...d, enclosName: e.name })))
     const inStable = stable.map((d) => ({ ...d, enclosName: 'Étable' }))
     return [...inStable, ...inEnclos]
   }, [enclos, stable])
+
+  // Cross-species filter palette: the colours actually present in the herd (each scoped to its own
+  // species), so the "couleur" filter stays correct across mixed species. Sorted by gen then name.
+  const herdColors = useMemo(() => {
+    const seen = new Map<string, { color: string; species: Species }>()
+    for (const m of mounts) {
+      if (m.color && !seen.has(m.color)) seen.set(m.color, { color: m.color, species: m.species })
+    }
+    return [...seen.values()].sort(
+      (a, b) =>
+        genOf(a.species, a.color) - genOf(b.species, b.color) || a.color.localeCompare(b.color)
+    )
+  }, [mounts])
+
+  // Species the import box targets. ImportByName decodes one species at a time, so we let the user
+  // pick. Default to the first species already present in the herd, else the first known species.
+  const [importSpecies, setImportSpecies] = useState<Species>(
+    () => mounts.find((m) => m.species)?.species ?? SPECIES_LIST[0]
+  )
 
   // Filters + bulk selection (the "Toutes les montures" table)
   const [fText, setFText] = useState('')
@@ -58,7 +75,7 @@ export function HerdTab({
   const filtered = mounts.filter((m) => {
     if (needle && !m.name.toLowerCase().includes(needle)) return false
     if (fColor && m.color !== fColor) return false
-    if (fGen !== '' && genOf(m.color) !== fGen) return false
+    if (fGen !== '' && genOf(m.species, m.color) !== fGen) return false
     if (fSex && m.sex !== fSex) return false
     if (fStatus && m.status !== fStatus) return false
     if (fKeeper === 'yes' && !m.keeper) return false
@@ -125,11 +142,26 @@ export function HerdTab({
       <div className="pane-head">
         <h2>🐴 Stock</h2>
         <span className="muted">
-          {mounts.length} dragodindes · {fecondeMounts.length} fécondes
+          {mounts.length} monture(s) · {fecondeMounts.length} fécondes
         </span>
       </div>
 
-      <ImportByName enclos={enclos} onImported={onChanged} />
+      <div className="plan-controls">
+        <label>
+          Espèce à importer
+          <select
+            value={importSpecies}
+            onChange={(e) => setImportSpecies(e.target.value as Species)}
+          >
+            {SPECIES_LIST.map((s) => (
+              <option key={s} value={s}>
+                {SPECIES[s].icon} {SPECIES[s].label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <ImportByName species={importSpecies} enclos={enclos} onImported={onChanged} />
 
       {/* Herd list */}
       <div className="policy-head" style={{ marginTop: 16 }}>
@@ -150,9 +182,9 @@ export function HerdTab({
         />
         <select value={fColor} onChange={(e) => setFColor(e.target.value)}>
           <option value="">couleur : toutes</option>
-          {RACES.map((r) => (
-            <option key={r} value={r}>
-              {r}
+          {herdColors.map((c) => (
+            <option key={c.color} value={c.color}>
+              {SPECIES[c.species].icon} {c.color}
             </option>
           ))}
         </select>
@@ -229,7 +261,7 @@ export function HerdTab({
               <option value="stable">🏠 Étable</option>
               {enclos.map((e) => (
                 <option key={e.id} value={e.id}>
-                  {e.name} ({e.dragodindes.length}/10)
+                  {e.name} ({e.mounts.length}/10)
                 </option>
               ))}
             </select>
@@ -293,6 +325,7 @@ export function HerdTab({
                     title="Tout sélectionner (filtré)"
                   />
                 </th>
+                <th className="ctr">Esp.</th>
                 <th>Nom</th>
                 <th>Couleur</th>
                 <th>Gén</th>
@@ -319,6 +352,9 @@ export function HerdTab({
                       onChange={() => toggleOne(m.id)}
                     />
                   </td>
+                  <td className="ctr" title={SPECIES[m.species].label}>
+                    {SPECIES[m.species].icon}
+                  </td>
                   <td className="herd-name">
                     <input
                       type="text"
@@ -332,15 +368,21 @@ export function HerdTab({
                       onChange={(e) => patch(m.id, { color: e.target.value })}
                     >
                       <option value="">—</option>
-                      {RACES.map((r) => (
-                        <option key={r} value={r}>
-                          {r}
+                      {colorsOf(m.species).map((c) => (
+                        <option key={c.name} value={c.name}>
+                          {c.name}
                         </option>
                       ))}
                     </select>
                   </td>
-                  <td className="ctr" style={{ color: GEN_COLOR[genOf(m.color)], fontWeight: 700 }}>
-                    {m.color ? genOf(m.color) : '—'}
+                  <td
+                    className="ctr"
+                    style={{
+                      color: genColorOf(m.species)[genOf(m.species, m.color)],
+                      fontWeight: 700
+                    }}
+                  >
+                    {m.color ? genOf(m.species, m.color) : '—'}
                   </td>
                   <td>
                     <select
@@ -382,10 +424,10 @@ export function HerdTab({
                         <option
                           key={e.id}
                           value={e.id}
-                          disabled={m.enclosId !== e.id && e.dragodindes.length >= 10}
+                          disabled={m.enclosId !== e.id && e.mounts.length >= 10}
                         >
                           {e.name}
-                          {e.dragodindes.length >= 10 ? ' (plein)' : ''}
+                          {e.mounts.length >= 10 ? ' (plein)' : ''}
                         </option>
                       ))}
                     </select>

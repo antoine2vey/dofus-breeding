@@ -1,4 +1,4 @@
-import type { AssistantPlan, Recommendation } from '@dd/core'
+import type { ArbiterResult, AssistantPlan, Recommendation, Species, SpeciesConfig } from '@dd/core'
 import type {
   AppState,
   CloneInput,
@@ -13,11 +13,18 @@ import type {
 } from './types'
 
 export interface RecommendBody {
+  species: Species
   targetGen?: number
   level?: number
   optimakina?: boolean
   clonage?: boolean
   freeSlots?: number
+}
+
+export interface SettingsResult {
+  webhookConfigured: boolean
+  aiConfigured: boolean
+  speciesConfig?: SpeciesConfig
 }
 
 // A 401 from any API call means the session is gone — let the app flip to the login wall.
@@ -112,11 +119,11 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input)
     }).then((r) => json<Dragodinde | { error: string }>(r)),
-  importMounts: (mounts: ImportRow[], enclosId: number | null) =>
+  importMounts: (mounts: ImportRow[], enclosId: number | null, species: Species) =>
     fetch('/api/import', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mounts, enclosId })
+      body: JSON.stringify({ mounts, enclosId, species })
     }).then((r) =>
       json<
         | { created: number; skipped: number; toEnclos: number; mounts: Dragodinde[] }
@@ -146,7 +153,15 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     }).then((r) => json<Recommendation>(r)),
+  /** Cross-species next-step: one ranked action list over the shared enclos slot pool. */
+  arbiter: (body: { freeSlots?: number } = {}) =>
+    fetch('/api/arbiter', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then((r) => json<ArbiterResult>(r)),
   assistantPlan: (body: {
+    species: Species
     targetGen: number
     level: number
     optimakina: boolean
@@ -158,25 +173,31 @@ export const api = {
       body: JSON.stringify(body)
     }).then((r) => json<AssistantPlan>(r)),
 
-  setAchievements: (colors: string[]) =>
+  setAchievements: (species: Species, colors: string[]) =>
     fetch('/api/achievements', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ colors })
+      body: JSON.stringify({ species, colors })
     }).then((r) => json<{ achievements: string[] }>(r)),
+  setSpeciesConfig: (speciesConfig: SpeciesConfig) =>
+    fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ speciesConfig })
+    }).then((r) => json<SettingsResult>(r)),
   setWebhook: (webhookUrl: string) =>
     fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ webhookUrl })
-    }).then((r) => json<{ webhookConfigured: boolean; aiConfigured: boolean }>(r)),
+    }).then((r) => json<SettingsResult>(r)),
   // BYOK: save ("" clears) the current user's OpenAI key. Never returns the key.
   setAiKey: (aiKey: string) =>
     fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ aiKey })
-    }).then((r) => json<{ webhookConfigured: boolean; aiConfigured: boolean }>(r)),
+    }).then((r) => json<SettingsResult>(r)),
   testNotify: () =>
     fetch('/api/test-notify', { method: 'POST' }).then((r) =>
       json<{ ok: boolean; reason?: string }>(r)

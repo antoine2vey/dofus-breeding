@@ -9,16 +9,20 @@ import { OddsCalculator } from './components/OddsCalculator'
 import { OnboardingWizard } from './components/OnboardingWizard'
 import { SettingsDialog } from './components/SettingsDialog'
 import { SuccesTab } from './components/SuccesTab'
-import type { AppState, DragoPatch, EnclosPatch } from './types'
+import type { AppState, DragoPatch, EnclosPatch, Species } from './types'
 
 type Tab = 'tracker' | 'herd' | 'assistant' | 'succes' | 'planner' | 'odds' | 'naming'
+type SettingsSection = 'webhook' | 'ai' | 'species'
 
 /** Logged-out landing — the only thing reachable without a Better Auth session. */
 function LoginWall() {
   return (
     <div className="login-wall">
-      <h1>🐉 Dragodinde Notif</h1>
-      <p>Suis ta reproduction de dragodindes. Connecte-toi avec Discord pour commencer.</p>
+      <h1>🐉 Élevage Dofus</h1>
+      <p>
+        Suis ta reproduction de montures (dragodinde · muldo · volkorne). Connecte-toi avec Discord
+        pour commencer.
+      </p>
       <button className="discord-btn" onClick={() => api.signInDiscord()}>
         Se connecter avec Discord
       </button>
@@ -30,10 +34,18 @@ export default function App() {
   const [state, setState] = useState<AppState | null>(null)
   const [me, setMe] = useState<Me | null | undefined>(undefined) // undefined = checking
   const [activeId, setActiveId] = useState<number | null>(null)
-  const [settingsSection, setSettingsSection] = useState<'webhook' | 'ai' | null>(null)
+  const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null)
   const [tab, setTab] = useState<Tab>('tracker')
   const [wizardOpen, setWizardOpen] = useState(false)
   const onboardChecked = useRef(false)
+  // The globally-selected species drives the per-species reference tabs (Succès/Naming/Roster/Odds/
+  // Tree). The herd/enclos + assistant stay cross-species. Persisted across reloads.
+  const [species, setSpecies] = useState<Species>(
+    () => (localStorage.getItem('dd-species') as Species) || 'dragodinde'
+  )
+  useEffect(() => {
+    localStorage.setItem('dd-species', species)
+  }, [species])
 
   // Resolve auth once on mount; any later 401 (expired session) flips back to the login wall.
   useEffect(() => {
@@ -68,10 +80,15 @@ export default function App() {
     return () => clearInterval(t)
   }, [refresh, me])
 
+  // Keep the active species valid — if the persisted one is disabled, fall back to dragodinde.
+  useEffect(() => {
+    if (state && !state.settings.speciesConfig[species]?.enabled) setSpecies('dragodinde')
+  }, [state, species])
+
   // First-run: auto-open onboarding once, when an empty stock meets a not-yet-dismissed user.
   useEffect(() => {
     if (!state || onboardChecked.current) return
-    const empty = state.stable.length === 0 && state.enclos.every((e) => e.dragodindes.length === 0)
+    const empty = state.stable.length === 0 && state.enclos.every((e) => e.mounts.length === 0)
     if (empty && !localStorage.getItem('dd-onboarded')) {
       onboardChecked.current = true
       setWizardOpen(true)
@@ -129,12 +146,30 @@ export default function App() {
   if (!state) return <div className="loading">Loading…</div>
 
   const { enclos, stable, achievements, meta, settings } = state
-  const allMounts = [...stable, ...enclos.flatMap((e) => e.dragodindes)]
+  const allMounts = [...stable, ...enclos.flatMap((e) => e.mounts)]
+  // Species available in the selector: those enabled in settings (dragodinde is always present).
+  const enabledSpecies = meta.species.filter(
+    (s) => s.species === 'dragodinde' || settings.speciesConfig[s.species]?.enabled
+  )
 
   return (
     <>
       <header>
-        <h1>🐉 Dragodinde Notif</h1>
+        <h1>🐉 Élevage Dofus</h1>
+        {enabledSpecies.length > 1 && (
+          <select
+            className="species-selector"
+            value={species}
+            onChange={(e) => setSpecies(e.target.value as Species)}
+            title="Espèce active"
+          >
+            {enabledSpecies.map((s) => (
+              <option key={s.species} value={s.species}>
+                {s.icon} {s.label}
+              </option>
+            ))}
+          </select>
+        )}
         <nav className="tabs">
           <button
             className={'tab' + (tab === 'tracker' ? ' active' : '')}
@@ -183,6 +218,9 @@ export default function App() {
           <button className="ghost" title="Tutoriel" onClick={() => setWizardOpen(true)}>
             ?
           </button>
+          <button className="ghost" title="Espèces" onClick={() => setSettingsSection('species')}>
+            🧬 Espèces
+          </button>
           <button
             className="ghost"
             title="Webhook Discord"
@@ -224,19 +262,23 @@ export default function App() {
         </div>
       ) : tab === 'succes' ? (
         <div className="split">
-          <SuccesTab achievements={achievements} onChanged={refresh} />
+          <SuccesTab
+            species={species}
+            achievements={achievements[species] ?? []}
+            onChanged={refresh}
+          />
         </div>
       ) : tab === 'planner' ? (
         <div className="split">
-          <BreedingTree mounts={allMounts} />
+          <BreedingTree species={species} mounts={allMounts} />
         </div>
       ) : tab === 'odds' ? (
         <div className="split">
-          <OddsCalculator />
+          <OddsCalculator species={species} />
         </div>
       ) : (
         <div className="split">
-          <NamingTab />
+          <NamingTab species={species} />
         </div>
       )}
 
@@ -247,11 +289,14 @@ export default function App() {
         onConfigured={() => refresh()}
         aiConfigured={settings.aiConfigured}
         webhookUrl={settings.webhookUrl}
+        speciesConfig={settings.speciesConfig}
+        speciesMeta={meta.species}
       />
 
       <OnboardingWizard
         open={wizardOpen}
         onClose={closeWizard}
+        species={species}
         enclos={enclos}
         onImported={() => {
           refresh()

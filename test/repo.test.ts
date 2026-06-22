@@ -1,3 +1,4 @@
+import { SqlClient } from '@effect/sql'
 import { SqliteClient } from '@effect/sql-sqlite-node'
 import { expect, it } from '@effect/vitest'
 import { Effect, Layer, Option } from 'effect'
@@ -9,6 +10,14 @@ const TestRepo = Repo.Default.pipe(Layer.provide(SqliteClient.layer({ filename: 
 // Every test runs as a single signed-in user; the isolation test below uses multiple.
 const provide = <A, E>(self: Effect.Effect<A, E, Repo>) =>
   withUser('u-test', self).pipe(Effect.provide(TestRepo))
+
+// Same shared in-memory DB, but with the raw SqliteClient ALSO exposed so a test can backdate
+// ticked_at directly (simulating an enclos gone stale after a DB sync/restore). Reusing the one
+// `sqlLayer` value means Effect memoises it to a single connection shared with the Repo.
+const sqlLayer = SqliteClient.layer({ filename: ':memory:' })
+const TestRepoSql = Layer.merge(Repo.Default.pipe(Layer.provide(sqlLayer)), sqlLayer)
+const provideSql = <A, E>(self: Effect.Effect<A, E, Repo | SqlClient.SqlClient>) =>
+  withUser('u-test', self).pipe(Effect.provide(TestRepoSql))
 
 /** Seed a mount into the stable, then move it into the given enclos (the new two-step flow). */
 const addInEnclos = (enclosId: number) =>
@@ -43,14 +52,14 @@ it.effect("isolation: each user sees only their own cheptel and cannot touch ano
       'user-A',
       Effect.gen(function* () {
         expect((yield* repo.allMounts).map((m) => m.id)).toEqual([a.mountId])
-        expect(yield* repo.getAchievements).toEqual(['Amande'])
+        expect(yield* repo.getAchievements('dragodinde')).toEqual(['Amande'])
       })
     )
     yield* withUser(
       'user-B',
       Effect.gen(function* () {
         expect((yield* repo.allMounts).map((m) => m.id)).toEqual([bMountId])
-        expect(yield* repo.getAchievements).toEqual(['Rousse']) // NOT "Amande"
+        expect(yield* repo.getAchievements('dragodinde')).toEqual(['Rousse']) // NOT "Amande"
         expect((yield* repo.all).every((e) => e.id !== a.enclosId)).toBe(true) // B's enclos ≠ A's
       })
     )
@@ -100,7 +109,7 @@ it.effect('seeds one enclos (default focus) with NO dragodinde', () =>
       const all = yield* repo.all
       expect(all.length).toBe(1)
       expect(all[0].focus).toEqual(['endurance', 'amour']) // default 2
-      expect(all[0].dragodindes.length).toBe(0) // empty on create
+      expect(all[0].mounts.length).toBe(0) // empty on create
     })
   )
 )
@@ -114,7 +123,7 @@ it.effect('an enclos holds at most MAX mounts (the 11th move is refused)', () =>
       for (let i = 0; i < 11; i++) ids.push(Option.getOrThrow(yield* repo.addDrago()).id)
       for (let i = 0; i < 10; i++)
         expect(Option.isSome(yield* repo.moveDrago(ids[i], enclosId))).toBe(true)
-      expect((yield* repo.all)[0].dragodindes.length).toBe(10)
+      expect((yield* repo.all)[0].mounts.length).toBe(10)
       expect(Option.isNone(yield* repo.moveDrago(ids[10], enclosId))).toBe(true) // enclos full
       expect((yield* repo.stable).length).toBe(1) // the 11th stays in the stable
     })
@@ -127,7 +136,7 @@ it.effect('new mounts land in the stable; can be removed', () =>
       const repo = yield* Repo
       const d = Option.getOrThrow(yield* repo.addDrago())
       expect((yield* repo.stable).length).toBe(1)
-      expect((yield* repo.all)[0].dragodindes.length).toBe(0) // not in any enclos
+      expect((yield* repo.all)[0].mounts.length).toBe(0) // not in any enclos
       expect(yield* repo.removeDrago(d.id)).toBe(true)
       expect((yield* repo.stable).length).toBe(0)
     })
@@ -139,10 +148,10 @@ it.effect("registering a coloured mount auto-marks its succès (idempotent; '' i
     Effect.gen(function* () {
       const repo = yield* Repo
       yield* repo.addDrago({ color: 'Pourpre', sex: 'F' })
-      expect(yield* repo.getAchievements).toContain('Pourpre')
+      expect(yield* repo.getAchievements('dragodinde')).toContain('Pourpre')
       yield* repo.addDrago({ color: 'Pourpre', sex: 'M' }) // same colour again
       yield* repo.addDrago() // uncoloured -> no achievement
-      expect(yield* repo.getAchievements).toEqual(['Pourpre']) // idempotent, no junk
+      expect(yield* repo.getAchievements('dragodinde')).toEqual(['Pourpre']) // idempotent, no junk
     })
   )
 )
@@ -187,6 +196,31 @@ it.effect('focus is capped to the last 2 (rolling)', () =>
 
 const TICK_MS = 10000 // matches the Repo's tick quantum in tests
 
+// Regression: clicking a fuel bar (set fuel + check focus) on an enclos whose ticked_at is stale
+// must start ticking from now (+rate/tick) — it must NOT replay the idle gap and instant-fill the
+// gauge to 20k. patchEnclos settles the elapsed ticks and rebases ticked_at before applying the edit.
+it.effect('activating a fuel bar on a stale enclos does not instant-fill the gauge', () =>
+  provideSql(
+    Effect.gen(function* () {
+      const repo = yield* Repo
+      const sql = yield* SqlClient.SqlClient
+      const e = (yield* repo.all)[0]
+      yield* addInEnclos(e.id) // one mount, amour 0, enclos idle (no fuel) -> nothing owed
+
+      // The enclos has sat idle for ~1000 ticks (e.g. ticked_at carried in from a DB sync/restore).
+      yield* sql`UPDATE enclos SET ticked_at = ${Date.now() - 1000 * TICK_MS} WHERE id = ${e.id}`
+
+      // User clicks the amour bar: set fuel + check focus. Pre-fix this replayed 1000 ticks against
+      // the new fuel and slammed amour to STAT_MAX; now it takes effect from now forward.
+      yield* repo.patchEnclos(e.id, { focus: ['amour'], fuel: { amour: 95000 } })
+
+      const mount = (yield* repo.all)[0].mounts[0]
+      expect(mount.stats.amour).toBeLessThan(STAT_MAX) // not instant-filled
+      expect(mount.stats.amour).toBe(0) // ticked_at rebased -> ~0 elapsed ticks since the edit
+    })
+  )
+)
+
 it.effect('the sweep advances elapsed ticks and groups completions per owning user', () =>
   provide(
     Effect.gen(function* () {
@@ -194,7 +228,7 @@ it.effect('the sweep advances elapsed ticks and groups completions per owning us
       const e = (yield* repo.all)[0]
       yield* addInEnclos(e.id)
       yield* addInEnclos(e.id) // 2 dragodindes (enclos starts empty)
-      const dragos = (yield* repo.all)[0].dragodindes
+      const dragos = (yield* repo.all)[0].mounts
 
       // focus amour with fuel; both dragodindes just below max -> they cross 20k on the first tick
       yield* repo.patchEnclos(e.id, { focus: ['amour'], fuel: { amour: 95000 } })
@@ -224,7 +258,7 @@ it.effect('changing enclos focus re-arms a dragodinde that no longer qualifies',
       expect(g[0]?.items.length).toBe(1) // crosses 20k -> completes
       // now require maturite too -> dragodinde no longer done -> re-armed
       yield* repo.patchEnclos(e.id, { focus: ['amour', 'maturite'] })
-      const after = (yield* repo.all)[0].dragodindes[0]
+      const after = (yield* repo.all)[0].mounts[0]
       expect(after.notified).toBe(false)
     })
   )
@@ -242,7 +276,8 @@ it.effect(
             { color: 'Amande', sex: 'M', status: 'sterile' },
             { color: 'Dorée', sex: 'F', status: 'sterile' }
           ],
-          null
+          null,
+          'dragodinde'
         )
         const [survivor, consumed] = created
         // Dirty the survivor's gauges so we can prove the reset.
@@ -273,7 +308,8 @@ it.effect('clonage refuses a different-generation pair (and leaves both intact)'
           { color: 'Amande', sex: 'M', status: 'sterile' }, // gen 1
           { color: 'Ebène', sex: 'F', status: 'sterile' } // gen 3
         ],
-        null
+        null,
+        'dragodinde'
       )
       const [a, b] = created
       expect(Option.isNone(yield* repo.recordClone({ survivorId: a.id, consumedId: b.id }))).toBe(
@@ -293,7 +329,8 @@ it.effect('clonage refuses when a mount is not sterile', () =>
           { color: 'Amande', sex: 'M', status: 'sterile' },
           { color: 'Dorée', sex: 'F', status: 'fertile' } // not sterile
         ],
-        null
+        null,
+        'dragodinde'
       )
       const [a, b] = created
       expect(Option.isNone(yield* repo.recordClone({ survivorId: a.id, consumedId: b.id }))).toBe(
@@ -318,7 +355,7 @@ it.effect('serenity pings on entering the band, not when already inside', () =>
 
       const g = yield* repo.sweep(Date.now() + 5 * TICK_MS) // b: -230 -> enters band -> ping
       expect(g[0]?.items.length).toBe(1)
-      expect(g[0].items[0].dragodinde.id).toBe(b.id)
+      expect(g[0].items[0].mount.id).toBe(b.id)
       // both now inside the band -> serenityPlus auto-unchecked (front & back)
       expect((yield* repo.all)[0].focus).toEqual([])
     })

@@ -1,8 +1,8 @@
-// Pure domain logic for the Dragodinde simulation — no Effect, no IO, fully testable.
+// Pure domain logic for the mount simulation — no Effect, no IO, fully testable.
 
-import type { ReproStatus } from '@dd/core'
+import { type ReproStatus, SPECIES, type Species } from '@dd/core'
 
-export type { ReproStatus }
+export type { ReproStatus, Species }
 
 export const STAT_MAX = 20000 // endurance / maturite / amour cap
 export const SERENITY_MIN = -5000 // serenity scale / clamp range
@@ -10,7 +10,8 @@ export const SERENITY_MAX = 5000
 export const SERENITY_GOAL = 200 // serenity "done" when within [-200, +200]
 export const FUEL_MAX = 100000
 export const MAX_ENCLOS = 6
-export const MAX_DRAGODINDES = 10 // hard cap of mounts placed in a single enclos
+export const MAX_MOUNTS = 10 // hard cap of mounts placed in a single enclos
+export const MAX_DRAGODINDES = MAX_MOUNTS // back-compat alias
 export const MAX_STABLE = 250 // soft cap of the stable (the master collection)
 export const MAX_FOCUS = 2 // at most 2 focused stats per enclos (rolling)
 
@@ -53,31 +54,35 @@ export interface Stats {
 
 export type Sex = 'M' | 'F'
 
-export interface Dragodinde {
+export interface Mount {
   readonly id: number
+  readonly species: Species // dragodinde | muldo | volkorne
   readonly name: string
   readonly stats: Stats
   readonly notified: boolean
   // Breeding identity & lineage (added for the AI helper / recommender).
-  readonly color: string // one of the 66 colour names, or "" if unset (legacy/wild)
+  readonly color: string // one of the species' colour names, or "" if unset (legacy/wild)
   readonly sex: Sex
   readonly status: ReproStatus // sterile (bred) → fertile (not ready) → feconde (ready now)
   readonly keeper: boolean // the achievement copy to protect from breeding
   readonly enclosId: number | null // null = in the stable (étable); otherwise the enclos it's in
-  readonly parentA: number | null // dragodinde id of a parent (for genealogy / grandparents)
+  readonly parentA: number | null // mount id of a parent (for genealogy / grandparents)
   readonly parentB: number | null
   // Grandparent colours (= this mount's parents' colours) stored denormalised, so they survive
   // a parent being deleted (clonage) and can be set on import from the name. 0..2 colour names.
   readonly grandparents: ReadonlyArray<string>
 }
 
+/** Back-compat alias — `Mount` is the generic type; existing code may still say `Dragodinde`. */
+export type Dragodinde = Mount
+
 export interface Enclos {
   readonly id: number
   readonly name: string
   readonly fuel: Readonly<Record<FuelKey, number>>
-  // Focus lives on the enclos and applies to every dragodinde inside it.
+  // Focus lives on the enclos and applies to every mount inside it (species-agnostic pen).
   readonly focus: ReadonlyArray<FocusKey>
-  readonly dragodindes: ReadonlyArray<Dragodinde>
+  readonly mounts: ReadonlyArray<Mount>
 }
 
 /** Fuel value -> units gained/lost this tick (and units the fuel bar drains). */
@@ -101,9 +106,10 @@ export const emptyFuel = (): Record<FuelKey, number> => ({
 
 export const DEFAULT_FOCUS: ReadonlyArray<FocusKey> = ['endurance', 'amour']
 
-export const makeDragodinde = (id: number, name?: string): Dragodinde => ({
+export const makeMount = (id: number, species: Species, name?: string): Mount => ({
   id,
-  name: name ?? `Dragodinde ${id}`,
+  species,
+  name: name ?? `${SPECIES[species].label} ${id}`,
   stats: { endurance: 0, maturite: 0, amour: 0, serenity: 0 },
   notified: false,
   color: '',
@@ -115,6 +121,10 @@ export const makeDragodinde = (id: number, name?: string): Dragodinde => ({
   parentB: null,
   grandparents: []
 })
+
+/** Back-compat factory — defaults to the dragodinde species. */
+export const makeDragodinde = (id: number, name?: string): Mount =>
+  makeMount(id, 'dragodinde', name)
 
 /** Has this bar driven its target to its goal? Serenity goal = inside the [-100,100] band. */
 export const barGoalReached = (bar: Bar, stats: Stats): boolean => {
@@ -169,17 +179,17 @@ export const tickEnclos = (
   const rates: Record<FuelKey, number> = { ...emptyFuel() }
   const fuel: Record<FuelKey, number> = { ...e.fuel }
   for (const bar of BARS) {
-    // A bar ticks only if it's checked AND at least one dragodinde still needs
-    // its goal — once every dragodinde has maxed it, the bar stops draining.
-    const needed = e.dragodindes.some((d) => !barGoalReached(bar, d.stats))
+    // A bar ticks only if it's checked AND at least one mount still needs
+    // its goal — once every mount has maxed it, the bar stops draining.
+    const needed = e.mounts.some((d) => !barGoalReached(bar, d.stats))
     const r = barActive(bar, e.focus) && needed ? bandRate(e.fuel[bar.key]) : 0
     rates[bar.key] = r
     fuel[bar.key] = Math.max(0, e.fuel[bar.key] - r)
   }
 
-  const completed: Array<Dragodinde> = []
-  const becameFeconde: Array<Dragodinde> = []
-  const dragodindes = e.dragodindes.map((d) => {
+  const completed: Array<Mount> = []
+  const becameFeconde: Array<Mount> = []
+  const mounts = e.mounts.map((d) => {
     const stats = gainStats(d.stats, rates)
     const done = focusAllMaxed(e.focus, stats)
     const status = reproStatus(d.status, stats) // gauges maxed -> becomes féconde
@@ -189,13 +199,13 @@ export const tickEnclos = (
     return next
   })
 
-  // Auto-uncheck any focused bar whose goal is now reached by EVERY dragodinde.
+  // Auto-uncheck any focused bar whose goal is now reached by EVERY mount.
   const focus =
-    dragodindes.length > 0
-      ? e.focus.filter((k) => !dragodindes.every((d) => barGoalReached(BAR_BY_KEY[k], d.stats)))
+    mounts.length > 0
+      ? e.focus.filter((k) => !mounts.every((d) => barGoalReached(BAR_BY_KEY[k], d.stats)))
       : e.focus
 
-  return { enclos: { ...e, fuel, dragodindes, focus }, completed, becameFeconde }
+  return { enclos: { ...e, fuel, mounts, focus }, completed, becameFeconde }
 }
 
 /** Advance an enclos by up to `nTicks` ticks of elapsed time, stopping early the moment it goes

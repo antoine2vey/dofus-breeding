@@ -32,7 +32,7 @@ export const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.mi
 
 /** Does any dragodinde still need this bar's goal? (false => the bar should freeze). */
 export const barNeeded = (bar: Bar, enclos: Enclos, meta: Meta): boolean =>
-  enclos.dragodindes.some((d) => !barGoalReached(bar, d.stats, meta))
+  enclos.mounts.some((d) => !barGoalReached(bar, d.stats, meta))
 
 export const barGoalReached = (bar: Bar, stats: Stats, meta: Meta): boolean =>
   bar.target === 'serenity'
@@ -49,7 +49,7 @@ export const isDone = (focus: FocusKey[], stats: Stats, meta: Meta): boolean => 
 }
 
 export const enclosDoneCount = (enclos: Enclos, meta: Meta): number =>
-  enclos.dragodindes.filter((d) => isDone(enclos.focus, d.stats, meta)).length
+  enclos.mounts.filter((d) => isDone(enclos.focus, d.stats, meta)).length
 
 /** Stat targets currently focused (for highlighting the dragodinde's stat bars). */
 export const focusedStats = (focus: FocusKey[], meta: Meta): Set<StatKey> =>
@@ -113,7 +113,7 @@ export const barEtaToMaxSec = (
   const fuel = enclos.fuel[bar.key]
   const dir = bar.sign
   let maxEta: number | null = null
-  for (const d of enclos.dragodindes) {
+  for (const d of enclos.mounts) {
     if (barGoalReached(bar, d.stats, meta)) continue
     let goal: number
     if (bar.target === 'serenity') {

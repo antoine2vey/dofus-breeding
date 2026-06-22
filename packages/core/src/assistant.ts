@@ -9,10 +9,9 @@
 // Pure. The deterministic source of truth for the Assistant; the AI orchestrates on top of it.
 
 import { cheptelAccounting } from './cheptel.js'
-import { COLOR_BY_NAME, COLORS } from './colors.js'
 import { type BreedAction, type InvMount, type ReproStatus, recommend } from './recommend.js'
+import { colorsOf, genOf, type Species } from './species.js'
 
-const genOf = (color: string) => COLOR_BY_NAME.get(color)?.gen ?? 0
 const ENCLOS_CAP = 10
 
 /** A mount with its location, for the live-state-aware planner. A superset of the recommender's
@@ -98,11 +97,15 @@ export interface AssistantPlan {
   readonly nextStep: NextStep
 }
 
-export function assistantPlan(input: AssistantInput): AssistantPlan {
+// NOTE: single-species. `mounts` must already be filtered to `species`; the enclos `count` is the
+// TOTAL (mixed-species) occupancy so free capacity is correct. Cross-species slot arbitration of
+// the next-step lives in the arbiter (arbiter.ts) — this produces one species' roadmap + next-step.
+export function assistantPlan(species: Species, input: AssistantInput): AssistantPlan {
   const { mounts, enclos, targetGen, level, optimakina, clonage } = input
+  const gen = (c: string) => genOf(species, c)
 
   // ── Layer A: roadmap from the shared cheptel accounting (stock sets + deterministic plan) ──
-  const acc = cheptelAccounting({
+  const acc = cheptelAccounting(species, {
     mounts,
     achievements: input.achievements,
     targetGen,
@@ -129,7 +132,7 @@ export function assistantPlan(input: AssistantInput): AssistantPlan {
     }))
     .filter((g) => g.rows.length > 0)
 
-  const targetColors = COLORS.filter((c) => c.gen <= targetGen)
+  const targetColors = colorsOf(species).filter((c) => c.gen <= targetGen)
   const obtainedColors = targetColors.filter((c) => obtained.has(c.name)).length
   const reached = obtainedColors === targetColors.length
 
@@ -146,7 +149,7 @@ export function assistantPlan(input: AssistantInput): AssistantPlan {
 
   // ── Layer B: next step. Breed / clone / capture come straight from `recommend` (same
   //    deterministic source — an AssistMount IS an InvMount); `raise` is the live-state piece. ──
-  const rec = recommend({
+  const rec = recommend(species, {
     mounts,
     targetGen,
     freeSlots: 999, // we want every productive féconde pair, not a per-round cap
@@ -176,7 +179,7 @@ export function assistantPlan(input: AssistantInput): AssistantPlan {
   for (const m of mounts)
     if (m.enclosId === null && m.status === 'fertile' && !m.keeper && m.color && want(m.color) > 0)
       (byColor.get(m.color) ?? byColor.set(m.color, []).get(m.color)!).push(m)
-  const colorsByGen = [...byColor.keys()].sort((a, b) => genOf(a) - genOf(b))
+  const colorsByGen = [...byColor.keys()].sort((a, b) => gen(a) - gen(b))
 
   const freeByEnclos = enclos
     .map((e) => ({

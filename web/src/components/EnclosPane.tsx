@@ -1,3 +1,4 @@
+import { SPECIES } from '@dd/core'
 import { useDroppable } from '@dnd-kit/core'
 import { useEffect, useRef, useState } from 'react'
 import type { Bar, Enclos, EnclosPatch, FocusKey, FuelKey, Meta } from '../types'
@@ -133,10 +134,7 @@ function FuelRow({
   return (
     <div className="fuel-cell">
       <div className="fuel-row">
-        <label
-          className="chk"
-          title={frozen ? 'Frozen — all dragodindes maxed' : 'Check to activate'}
-        >
+        <label className="chk" title={frozen ? 'Frozen — all mounts maxed' : 'Check to activate'}>
           <input
             type="checkbox"
             checked={checked}
@@ -163,7 +161,7 @@ function FuelRow({
             ↓ {nextStepLabel(value)} in {fmtEta(etaStep)}
           </span>
           {etaMax != null && (
-            <span title="Time until every dragodinde maxes this stat (bar freezes)">
+            <span title="Time until every mount maxes this stat (bar freezes)">
               {' · '}⚑ max in {fmtEta(etaMax)}
             </span>
           )}
@@ -187,7 +185,9 @@ function EnclosRow({
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: `enclos-${e.id}` })
   const done = enclosDoneCount(e, meta)
-  const full = e.dragodindes.length >= meta.maxDragodindes
+  const full = e.mounts.length >= meta.maxMounts
+  // Distinct species icons present in this enclos (cross-species: don't hardcode 🐉).
+  const icons = [...new Set(e.mounts.map((m) => SPECIES[m.species].icon))].join('')
   return (
     <button
       ref={setNodeRef}
@@ -197,7 +197,8 @@ function EnclosRow({
       <span className="er-name">{e.name}</span>
       <span className="er-meta">
         <span className={full ? 'er-full' : ''}>
-          {e.dragodindes.length}/{meta.maxDragodindes}🐉
+          {e.mounts.length}/{meta.maxMounts}
+          {icons}
         </span>
         {done > 0 && <span className="er-done"> · {done}✓</span>}
       </span>
@@ -266,7 +267,7 @@ export function EnclosPane({
                 className="ghost mini"
                 title="Delete enclosure"
                 onClick={() => {
-                  if (window.confirm(`Delete ${active.name} and its dragodindes?`))
+                  if (window.confirm(`Delete ${active.name} and its mounts?`))
                     onEnclosDelete(active.id)
                 }}
               >

@@ -1,4 +1,12 @@
-import { buildName, COLOR_CODES, GEN_COLOR, genOf, type Sex } from '@dd/core'
+import {
+  baseColorsOf,
+  buildName,
+  colorCodesOf,
+  genColorOf,
+  genOf,
+  type Sex,
+  type Species
+} from '@dd/core'
 import { useEffect, useMemo, useState } from 'react'
 
 interface Row {
@@ -10,8 +18,8 @@ interface Row {
   showGp: boolean
 }
 
-const newRow = (): Row => ({
-  color: 'Amande',
+const newRow = (species: Species): Row => ({
+  color: baseColorsOf(species)[0],
   sex: 'F',
   keeper: false,
   gp: ['', ''],
@@ -20,13 +28,13 @@ const newRow = (): Row => ({
 })
 
 /** Colour <select> options grouped by generation (name — code), shared by the colour and the
- *  grandparent pickers. */
-function ColorOptions({ withNone }: { withNone?: boolean }) {
+ *  grandparent pickers. Scoped to a species. */
+function ColorOptions({ species, withNone }: { species: Species; withNone?: boolean }) {
   const byGen = useMemo(() => {
-    const m = new Map<number, typeof COLOR_CODES>()
-    for (const c of COLOR_CODES) (m.get(c.gen) ?? m.set(c.gen, []).get(c.gen)!).push(c)
+    const m = new Map<number, ReturnType<typeof colorCodesOf>>()
+    for (const c of colorCodesOf(species)) (m.get(c.gen) ?? m.set(c.gen, []).get(c.gen)!).push(c)
     return m
-  }, [])
+  }, [species])
   return (
     <>
       {withNone && <option value="">— aucun —</option>}
@@ -48,14 +56,28 @@ function ColorOptions({ withNone }: { withNone?: boolean }) {
 /** Build a roster as rows of colour · sex · keeper · (optional) grandparents · quantity, and emit
  *  the expanded block of in-game names (one line per mount, quantity-expanded; mounts sharing
  *  colour/sex/grandparents intentionally share a name). Reused in the Nommage tab and the
- *  onboarding wizard; `onNamesChange` exposes the generated block to the caller. */
-export function RosterBuilder({ onNamesChange }: { onNamesChange?: (names: string) => void }) {
-  const [rows, setRows] = useState<Row[]>([newRow()])
+ *  onboarding wizard; `onNamesChange` exposes the generated block to the caller. Scoped to a
+ *  species. */
+export function RosterBuilder({
+  species,
+  onNamesChange
+}: {
+  species: Species
+  onNamesChange?: (names: string) => void
+}) {
+  const [rows, setRows] = useState<Row[]>(() => [newRow(species)])
   const [copied, setCopied] = useState(false)
+
+  const genColor = useMemo(() => genColorOf(species), [species])
+
+  // Reset the roster when the species changes — colours from one species are meaningless in another.
+  useEffect(() => {
+    setRows([newRow(species)])
+  }, [species])
 
   const patch = (i: number, p: Partial<Row>) =>
     setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...p } : r)))
-  const addRow = () => setRows((rs) => [...rs, newRow()])
+  const addRow = () => setRows((rs) => [...rs, newRow(species)])
   const removeRow = (i: number) =>
     setRows((rs) => (rs.length > 1 ? rs.filter((_, j) => j !== i) : rs))
 
@@ -64,7 +86,7 @@ export function RosterBuilder({ onNamesChange }: { onNamesChange?: (names: strin
       rows
         .flatMap((r) =>
           Array.from({ length: Math.max(1, r.qty) }, () =>
-            buildName({
+            buildName(species, {
               color: r.color,
               sex: r.sex,
               keeper: r.keeper,
@@ -73,7 +95,7 @@ export function RosterBuilder({ onNamesChange }: { onNamesChange?: (names: strin
           )
         )
         .join('\n'),
-    [rows]
+    [rows, species]
   )
   const count = names ? names.split('\n').length : 0
 
@@ -93,11 +115,11 @@ export function RosterBuilder({ onNamesChange }: { onNamesChange?: (names: strin
           <div className="roster-row" key={i}>
             <select
               className="roster-color"
-              style={{ color: GEN_COLOR[genOf(r.color)] }}
+              style={{ color: genColor[genOf(species, r.color)] }}
               value={r.color}
               onChange={(e) => patch(i, { color: e.target.value })}
             >
-              <ColorOptions />
+              <ColorOptions species={species} />
             </select>
             <select value={r.sex} onChange={(e) => patch(i, { sex: e.target.value as Sex })}>
               <option value="F">♀</option>
@@ -125,13 +147,13 @@ export function RosterBuilder({ onNamesChange }: { onNamesChange?: (names: strin
                   value={r.gp[0]}
                   onChange={(e) => patch(i, { gp: [e.target.value, r.gp[1]] })}
                 >
-                  <ColorOptions withNone />
+                  <ColorOptions species={species} withNone />
                 </select>
                 <select
                   value={r.gp[1]}
                   onChange={(e) => patch(i, { gp: [r.gp[0], e.target.value] })}
                 >
-                  <ColorOptions withNone />
+                  <ColorOptions species={species} withNone />
                 </select>
               </>
             )}

@@ -210,6 +210,18 @@ header h1 {
   font-size: 18px;
   margin: 0;
 }
+.species-selector {
+  margin-left: 14px;
+  background: var(--panel2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
 .settings {
   display: flex;
   gap: 10px;
@@ -567,8 +579,68 @@ dialog {
   padding: 22px;
   width: min(480px, 92vw);
 }
+dialog.wide {
+  width: min(820px, 94vw);
+}
 dialog::backdrop {
   background: rgba(0, 0, 0, 0.55);
+}
+
+/* ── Species settings: one card per species, laid out side by side ───── */
+.species-settings {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+.species-settings-row {
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.species-settings-row legend {
+  padding: 0 4px;
+}
+.species-enable {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.species-enable input {
+  width: auto;
+  margin: 0;
+}
+/* Disabled species: dim the controls so the enable check reads as the card's on/off state. */
+.species-settings-row.off {
+  opacity: 0.55;
+}
+.species-settings-row.off legend,
+.species-settings-row.off .species-enable {
+  opacity: 1;
+}
+/* Inside a narrow card the planner controls stack vertically. */
+.species-settings .plan-controls {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  margin: 0;
+  flex: 1;
+}
+.species-settings .plan-controls .inline-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 7px;
+}
+.species-settings .plan-controls .inline-check input {
+  width: auto;
+  margin: 0;
 }
 dialog h2 {
   margin-top: 0;
@@ -1737,4 +1809,79 @@ button.mini.danger {
   padding: 8px 11px;
   font-family: inherit;
   font-size: 13px;
+}
+
+/* ── Mobile / narrow viewports ───────────────────────────────────────── */
+@media (max-width: 760px) {
+  /* Header: let everything wrap; the tab bar gets its own full-width scrollable row. */
+  header {
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    gap: 8px 10px;
+  }
+  header h1 {
+    font-size: 16px;
+  }
+  .species-selector {
+    margin-left: auto;
+  }
+  nav.tabs {
+    order: 3;
+    flex-basis: 100%;
+    margin-left: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  nav.tabs::-webkit-scrollbar {
+    display: none;
+  }
+  nav.tabs .tab {
+    flex: none;
+    white-space: nowrap;
+  }
+  .settings {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  /* Side-by-side panes stack vertically. */
+  .split {
+    flex-direction: column;
+  }
+  .pane {
+    padding: 12px 12px 28px;
+    overflow-x: auto;
+  }
+  .pane:first-child {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  /* Settings dialog: species cards stack instead of sitting in a tight row. */
+  .species-settings {
+    flex-direction: column;
+  }
+
+  /* AI chat side-channel is hidden on mobile; the assistant content takes the full width. */
+  .assistant-chat {
+    display: none;
+  }
+
+  /* Two-up grids collapse to a single column. */
+  .mount-grid,
+  .dr-stats {
+    grid-template-columns: 1fr;
+  }
+
+  /* Wide data tables scroll horizontally rather than overflow the viewport. */
+  .gen-table,
+  .policy-table,
+  .odds-table,
+  .roadmap-table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
 }

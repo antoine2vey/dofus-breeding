@@ -26,24 +26,24 @@ describe('bandRate', () => {
 
 const enclos = (
   fuel: Partial<Record<FuelKey, number>>,
-  dragodindes: Dragodinde[],
+  mounts: Dragodinde[],
   focus: ReadonlyArray<FocusKey> = DEFAULT_FOCUS
 ): Enclos => ({
   id: 1,
   name: 'Enclos 1',
   fuel: { serenityMinus: 0, serenityPlus: 0, endurance: 0, maturite: 0, amour: 0, ...fuel },
   focus,
-  dragodindes
+  mounts
 })
 
 describe('tickEnclos', () => {
   it('matches the amour example: 80k band gives +30/tick to every dragodinde', () => {
     let e = enclos({ amour: 80000 }, [makeDragodinde(1)])
     let r = tickEnclos(e)
-    expect(r.enclos.dragodindes[0].stats.amour).toBe(30)
+    expect(r.enclos.mounts[0].stats.amour).toBe(30)
     expect(r.enclos.fuel.amour).toBe(79970)
     r = tickEnclos(r.enclos)
-    expect(r.enclos.dragodindes[0].stats.amour).toBe(60)
+    expect(r.enclos.mounts[0].stats.amour).toBe(60)
   })
 
   it('feeds all dragodindes from the shared fuel', () => {
@@ -56,8 +56,8 @@ describe('tickEnclos', () => {
       stats: { endurance: 0, maturite: 0, amour: 500, serenity: 0 }
     }
     const r = tickEnclos(enclos({ amour: 95000 }, [a, b]))
-    expect(r.enclos.dragodindes[0].stats.amour).toBe(140) // +40
-    expect(r.enclos.dragodindes[1].stats.amour).toBe(540) // +40
+    expect(r.enclos.mounts[0].stats.amour).toBe(140) // +40
+    expect(r.enclos.mounts[1].stats.amour).toBe(540) // +40
   })
 
   it('caps stats at STAT_MAX and clamps serenity', () => {
@@ -69,8 +69,8 @@ describe('tickEnclos', () => {
     const r = tickEnclos(
       enclos({ amour: 95000, serenityMinus: 95000 }, [d], ['amour', 'serenityMinus'])
     )
-    expect(r.enclos.dragodindes[0].stats.amour).toBe(STAT_MAX)
-    expect(r.enclos.dragodindes[0].stats.serenity).toBe(-5000) // clamped to SERENITY_MIN
+    expect(r.enclos.mounts[0].stats.amour).toBe(STAT_MAX)
+    expect(r.enclos.mounts[0].stats.serenity).toBe(-5000) // clamped to SERENITY_MIN
   })
 
   it('completes per dragodinde using the enclos focus, once', () => {
@@ -82,7 +82,7 @@ describe('tickEnclos', () => {
     const first = tickEnclos(e)
     expect(first.completed.length).toBe(1)
     expect(first.completed[0].notified).toBe(true)
-    expect(focusAllMaxed(e.focus, first.enclos.dragodindes[0].stats)).toBe(true)
+    expect(focusAllMaxed(e.focus, first.enclos.mounts[0].stats)).toBe(true)
 
     const second = tickEnclos(first.enclos)
     expect(second.completed.length).toBe(0) // already notified
@@ -106,12 +106,12 @@ describe('tickEnclos', () => {
     )
     const r = tickEnclos(e)
     // checked -> drains + feeds
-    expect(r.enclos.dragodindes[0].stats.amour).toBe(40)
+    expect(r.enclos.mounts[0].stats.amour).toBe(40)
     expect(r.enclos.fuel.amour).toBe(95000 - 40)
-    expect(r.enclos.dragodindes[0].stats.serenity).toBe(-260) // serenityPlus raises -300 -> -260
+    expect(r.enclos.mounts[0].stats.serenity).toBe(-260) // serenityPlus raises -300 -> -260
     expect(r.enclos.fuel.serenityPlus).toBe(95000 - 40)
     // unchecked -> untouched (serenityMinus too)
-    expect(r.enclos.dragodindes[0].stats.endurance).toBe(0)
+    expect(r.enclos.mounts[0].stats.endurance).toBe(0)
     expect(r.enclos.fuel.endurance).toBe(95000)
     expect(r.enclos.fuel.serenityMinus).toBe(95000)
   })
@@ -122,7 +122,7 @@ describe('tickEnclos', () => {
       stats: { endurance: 0, maturite: 0, amour: 0, serenity: -230 }
     }
     const first = tickEnclos(enclos({ serenityPlus: 95000 }, [d], ['serenityPlus']))
-    expect(first.enclos.dragodindes[0].stats.serenity).toBe(-190) // entered the band
+    expect(first.enclos.mounts[0].stats.serenity).toBe(-190) // entered the band
     expect(first.completed.length).toBe(1)
   })
 
@@ -174,8 +174,8 @@ describe('tickEnclos', () => {
     }
     const r = tickEnclos(enclos({ amour: 95000 }, [maxed, lagging], ['amour']))
     expect(r.enclos.fuel.amour).toBe(95000 - 40) // still draining
-    expect(r.enclos.dragodindes[1].stats.amour).toBe(40) // lagging one gains
-    expect(r.enclos.dragodindes[0].stats.amour).toBe(STAT_MAX) // maxed one stays
+    expect(r.enclos.mounts[1].stats.amour).toBe(40) // lagging one gains
+    expect(r.enclos.mounts[0].stats.amour).toBe(STAT_MAX) // maxed one stays
   })
 
   it('does not complete while a focused stat lags', () => {
@@ -191,17 +191,29 @@ describe('tickEnclos', () => {
 
 describe('resolveColor', () => {
   it('maps loose input to canonical colour names (case/accent-insensitive)', () => {
-    expect(resolveColor('amande')).toBe('Amande')
-    expect(resolveColor('AMANDE')).toBe('Amande')
-    expect(resolveColor('ebene')).toBe('Ebène')
-    expect(resolveColor('ebène et rousse')).toBe('Ebène et Rousse')
-    expect(resolveColor('  Dorée  ')).toBe('Dorée')
+    expect(resolveColor('dragodinde', 'amande')).toBe('Amande')
+    expect(resolveColor('dragodinde', 'AMANDE')).toBe('Amande')
+    expect(resolveColor('dragodinde', 'ebene')).toBe('Ebène')
+    expect(resolveColor('dragodinde', 'ebène et rousse')).toBe('Ebène et Rousse')
+    expect(resolveColor('dragodinde', '  Dorée  ')).toBe('Dorée')
   })
   it('returns null for unknown colours', () => {
-    expect(resolveColor('licorne')).toBeNull()
+    expect(resolveColor('dragodinde', 'licorne')).toBeNull()
   })
   it('names an Amande capture by the in-game convention, not the raw colour', () => {
-    expect(buildName({ color: resolveColor('amande')!, sex: 'F', keeper: false })).toBe('a-f')
-    expect(buildName({ color: resolveColor('amande')!, sex: 'M', keeper: false })).toBe('a-m')
+    expect(
+      buildName('dragodinde', {
+        color: resolveColor('dragodinde', 'amande')!,
+        sex: 'F',
+        keeper: false
+      })
+    ).toBe('a-f')
+    expect(
+      buildName('dragodinde', {
+        color: resolveColor('dragodinde', 'amande')!,
+        sex: 'M',
+        keeper: false
+      })
+    ).toBe('a-m')
   })
 })

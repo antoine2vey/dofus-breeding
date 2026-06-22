@@ -17,7 +17,14 @@ const baseEnclos: AssistEnclos[] = [
 ]
 
 const plan = (mounts: AssistMount[], enclos: AssistEnclos[], targetGen = 4) =>
-  assistantPlan({ mounts, enclos, targetGen, level: 100, optimakina: true, clonage: true })
+  assistantPlan('dragodinde', {
+    mounts,
+    enclos,
+    targetGen,
+    level: 100,
+    optimakina: true,
+    clonage: true
+  })
 
 describe('assistantPlan', () => {
   it('roadmap is cheptel-aware: owned reduces need and counts obtained colours', () => {
@@ -129,7 +136,7 @@ describe('assistantPlan', () => {
 
   it('succès: done gen-4 → push gen 5 → produce the gen-5 parents, never the done dead-ends', () => {
     const doneGen4 = COLORS.filter((c) => c.gen <= 4).map((c) => c.name) // achievements unlocked, own nothing
-    const { roadmap } = assistantPlan({
+    const { roadmap } = assistantPlan('dragodinde', {
       mounts: [],
       enclos: [],
       targetGen: 5,
@@ -151,7 +158,7 @@ describe('assistantPlan', () => {
     expect((need['Pourpre'] ?? 0) + (need['Orchidée'] ?? 0)).toBeGreaterThan(0)
 
     // Control: WITHOUT the succès, the same gen-4 dead-end IS required (it's a sink ≤ target).
-    const ctl = assistantPlan({
+    const ctl = assistantPlan('dragodinde', {
       mounts: [],
       enclos: [],
       targetGen: 5,

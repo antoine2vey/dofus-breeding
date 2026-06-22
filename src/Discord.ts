@@ -1,3 +1,4 @@
+import { SPECIES } from '@dd/core'
 import { HttpClient, HttpClientRequest } from '@effect/platform'
 import { Config, Effect } from 'effect'
 import { BARS, type FocusKey } from './domain.js'
@@ -67,19 +68,20 @@ export class Discord extends Effect.Service<Discord>()('app/Discord', {
         )
       )
 
+    const icon = (it: CompletedItem) => SPECIES[it.mount.species]?.icon ?? '🐉'
     const completedEmbed = (items: ReadonlyArray<CompletedItem>) => {
       const lines = items.map((it) =>
         it.kind === 'feconde'
-          ? `• 💗 **${it.dragodinde.name}** _(${it.enclosName})_ — féconde, prête à reproduire !`
-          : `• **${it.dragodinde.name}** _(${it.enclosName})_ — ${it.focus.map(labelFor).join(' + ') || '—'} maxed`
+          ? `• ${icon(it)} 💗 **${it.mount.name}** _(${it.enclosName})_ — féconde, prête à reproduire !`
+          : `• ${icon(it)} **${it.mount.name}** _(${it.enclosName})_ — ${it.focus.map(labelFor).join(' + ') || '—'} maxed`
       )
       const content =
         items.length === 1
-          ? `🐉 A dragodinde is ready!`
-          : `🐉 ${items.length} dragodindes are ready!`
+          ? `${icon(items[0])} Une monture est prête !`
+          : `🔔 ${items.length} montures sont prêtes !`
       return {
         content,
-        embeds: [{ title: 'Breeding complete', color: 0x57f287, description: lines.join('\n') }]
+        embeds: [{ title: 'Élevage terminé', color: 0x57f287, description: lines.join('\n') }]
       }
     }
 
@@ -88,7 +90,7 @@ export class Discord extends Effect.Service<Discord>()('app/Discord', {
       Effect.gen(function* () {
         if (items.length === 0 || !url) return
         const { content, embeds } = completedEmbed(items)
-        yield* Effect.logInfo(`${content} ${items.map((i) => i.dragodinde.name).join(', ')}`)
+        yield* Effect.logInfo(`${content} ${items.map((i) => i.mount.name).join(', ')}`)
         yield* post(url, content, embeds)
       })
 

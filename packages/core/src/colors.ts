@@ -1,5 +1,18 @@
-// AUTO-GENERATED color data (66 reproducible Dragodinde colors, Gen 1–10)
-// extracted & verified from dofuspourlesnoobs.com (section V). Recipes are exact.
+// Species-agnostic breeding PLANNER over the recipe DAG. The colour DATA lives per-species in
+// colors.<species>.ts, wired through the SPECIES registry (species.ts); this module keeps only the
+// ColorDef shape + the pure planner. The drago-named exports below are back-compat aliases (= the
+// dragodinde species) for code not yet threaded with an explicit species.
+import { DRAGODINDE_COLORS } from './colors.dragodinde.js'
+import {
+  baseColorsOf,
+  byNameOf,
+  colorsOf,
+  genColorOf,
+  maxGenOf,
+  resolveColorOf,
+  type Species
+} from './species.js'
+
 export interface ColorDef {
   readonly name: string
   readonly gen: number
@@ -7,431 +20,27 @@ export interface ColorDef {
   readonly parents: readonly [string, string] | null
 }
 
-export const COLORS: ReadonlyArray<ColorDef> = [
-  { name: 'Amande', gen: 1, bonus: ['400 Vitalité', '1700 Initiative'], parents: null },
-  { name: 'Dorée', gen: 1, bonus: ['400 Vitalité', '2 Invocations'], parents: null },
-  { name: 'Rousse', gen: 1, bonus: ['400 Vitalité', '60 Soins'], parents: null },
-  {
-    name: 'Amande et Rousse',
-    gen: 2,
-    bonus: ['400 Vitalité', '60 Soins', '1200 Initiative'],
-    parents: ['Amande', 'Rousse']
-  },
-  {
-    name: 'Dorée et Rousse',
-    gen: 2,
-    bonus: ['400 Vitalité', '1 Invocation', '45 Soins'],
-    parents: ['Dorée', 'Rousse']
-  },
-  {
-    name: 'Amande et Dorée',
-    gen: 2,
-    bonus: ['400 Vitalité', '1 Invocation', '1200 Initiative'],
-    parents: ['Amande', 'Dorée']
-  },
-  {
-    name: 'Ebène',
-    gen: 3,
-    bonus: ['400 Vitalité', '120 Agilité'],
-    parents: ['Amande et Dorée', 'Dorée et Rousse']
-  },
-  {
-    name: 'Indigo',
-    gen: 3,
-    bonus: ['400 Vitalité', '120 Chance'],
-    parents: ['Amande et Dorée', 'Amande et Rousse']
-  },
-  {
-    name: 'Indigo et Rousse',
-    gen: 4,
-    bonus: ['400 Vitalité', '90 Chance', '45 Soins'],
-    parents: ['Indigo', 'Rousse']
-  },
-  {
-    name: 'Ebène et Rousse',
-    gen: 4,
-    bonus: ['400 Vitalité', '90 Agilité', '45 Soins'],
-    parents: ['Ebène', 'Rousse']
-  },
-  {
-    name: 'Amande et Indigo',
-    gen: 4,
-    bonus: ['400 Vitalité', '90 Chance', '1200 Initiative'],
-    parents: ['Amande', 'Indigo']
-  },
-  {
-    name: 'Amande et Ebène',
-    gen: 4,
-    bonus: ['400 Vitalité', '120 Agilité', '1200 Initiative'],
-    parents: ['Amande', 'Ebène']
-  },
-  {
-    name: 'Dorée et Indigo',
-    gen: 4,
-    bonus: ['400 Vitalité', '90 Chance', '1 Invocation'],
-    parents: ['Dorée', 'Indigo']
-  },
-  {
-    name: 'Dorée et Ebène',
-    gen: 4,
-    bonus: ['400 Vitalité', '90 Agilité', '1 Invocation'],
-    parents: ['Dorée', 'Ebène']
-  },
-  {
-    name: 'Ebène et Indigo',
-    gen: 4,
-    bonus: ['400 Vitalité', '90 Chance', '90 Agilité'],
-    parents: ['Ebène', 'Indigo']
-  },
-  {
-    name: 'Pourpre',
-    gen: 5,
-    bonus: ['400 Vitalité', '120 Force'],
-    parents: ['Ebène et Indigo', 'Amande et Rousse']
-  },
-  {
-    name: 'Orchidée',
-    gen: 5,
-    bonus: ['400 Vitalité', '120 Intelligence'],
-    parents: ['Ebène et Indigo', 'Dorée et Rousse']
-  },
-  {
-    name: 'Pourpre et Rousse',
-    gen: 6,
-    bonus: ['400 Vitalité', '90 Force', '45 Soins'],
-    parents: ['Pourpre', 'Rousse']
-  },
-  {
-    name: 'Orchidée et Rousse',
-    gen: 6,
-    bonus: ['400 Vitalité', '90 Intelligence', '45 Soins'],
-    parents: ['Orchidée', 'Rousse']
-  },
-  {
-    name: 'Amande et Pourpre',
-    gen: 6,
-    bonus: ['400 Vitalité', '90 Force', '1200 Initiative'],
-    parents: ['Amande', 'Pourpre']
-  },
-  {
-    name: 'Amande et Orchidée',
-    gen: 6,
-    bonus: ['400 Vitalité', '90 Intelligence', '1200 Initiative'],
-    parents: ['Amande', 'Orchidée']
-  },
-  {
-    name: 'Dorée et Pourpre',
-    gen: 6,
-    bonus: ['400 Vitalité', '90 Force', '1 Invocation'],
-    parents: ['Dorée', 'Pourpre']
-  },
-  {
-    name: 'Dorée et Orchidée',
-    gen: 6,
-    bonus: ['400 Vitalité', '90 Intelligence', '1 Invocation'],
-    parents: ['Dorée', 'Orchidée']
-  },
-  {
-    name: 'Indigo et Pourpre',
-    gen: 6,
-    bonus: ['400 Vitalité', '90 Force', '90 Chance'],
-    parents: ['Indigo', 'Pourpre']
-  },
-  {
-    name: 'Indigo et Orchidée',
-    gen: 6,
-    bonus: ['400 Vitalité', '90 Intelligence', '90 Chance'],
-    parents: ['Indigo', 'Orchidée']
-  },
-  {
-    name: 'Ebène et Pourpre',
-    gen: 6,
-    bonus: ['400 Vitalité', '90 Force', '90 Agilité'],
-    parents: ['Ebène', 'Pourpre']
-  },
-  {
-    name: 'Ebène et Orchidée',
-    gen: 6,
-    bonus: ['400 Vitalité', '90 Intelligence', '90 Agilité'],
-    parents: ['Ebène', 'Orchidée']
-  },
-  {
-    name: 'Orchidée et Pourpre',
-    gen: 6,
-    bonus: ['400 Vitalité', '90 Force', '90 Intelligence'],
-    parents: ['Orchidée', 'Pourpre']
-  },
-  {
-    name: 'Ivoire',
-    gen: 7,
-    bonus: ['400 Vitalité', '90 Puissance'],
-    parents: ['Orchidée et Pourpre', 'Indigo et Pourpre']
-  },
-  {
-    name: 'Turquoise',
-    gen: 7,
-    bonus: ['400 Vitalité', '90 Prospection'],
-    parents: ['Orchidée et Pourpre', 'Ebène et Orchidée']
-  },
-  {
-    name: 'Ivoire et Rousse',
-    gen: 8,
-    bonus: ['400 Vitalité', '70 Puissance', '45 Soins'],
-    parents: ['Ivoire', 'Rousse']
-  },
-  {
-    name: 'Turquoise et Rousse',
-    gen: 8,
-    bonus: ['400 Vitalité', '45 Soins', '70 Prospection'],
-    parents: ['Turquoise', 'Rousse']
-  },
-  {
-    name: 'Amande et Ivoire',
-    gen: 8,
-    bonus: ['400 Vitalité', '70 Puissance', '1200 Initiative'],
-    parents: ['Amande', 'Ivoire']
-  },
-  {
-    name: 'Amande et Turquoise',
-    gen: 8,
-    bonus: ['400 Vitalité', '70 Prospection', '1200 Initiative'],
-    parents: ['Amande', 'Turquoise']
-  },
-  {
-    name: 'Dorée et Ivoire',
-    gen: 8,
-    bonus: ['400 Vitalité', '70 Puissance', '1 Invocation'],
-    parents: ['Dorée', 'Ivoire']
-  },
-  {
-    name: 'Dorée et Turquoise',
-    gen: 8,
-    bonus: ['400 Vitalité', '1 Invocation', '70 Prospection'],
-    parents: ['Dorée', 'Turquoise']
-  },
-  {
-    name: 'Indigo et Ivoire',
-    gen: 8,
-    bonus: ['400 Vitalité', '90 Chance', '70 Puissance'],
-    parents: ['Indigo', 'Ivoire']
-  },
-  {
-    name: 'Indigo et Turquoise',
-    gen: 8,
-    bonus: ['400 Vitalité', '90 Chance', '70 Prospection'],
-    parents: ['Indigo', 'Turquoise']
-  },
-  {
-    name: 'Ebène et Ivoire',
-    gen: 8,
-    bonus: ['400 Vitalité', '90 Agilité', '70 Puissance'],
-    parents: ['Ebène', 'Ivoire']
-  },
-  {
-    name: 'Ebène et Turquoise',
-    gen: 8,
-    bonus: ['400 Vitalité', '90 Agilité', '70 Prospection'],
-    parents: ['Ebène', 'Turquoise']
-  },
-  {
-    name: 'Ivoire et Pourpre',
-    gen: 8,
-    bonus: ['400 Vitalité', '90 Force', '70 Puissance'],
-    parents: ['Ivoire', 'Pourpre']
-  },
-  {
-    name: 'Turquoise et Pourpre',
-    gen: 8,
-    bonus: ['400 Vitalité', '90 Force', '70 Prospection'],
-    parents: ['Turquoise', 'Pourpre']
-  },
-  {
-    name: 'Ivoire et Orchidée',
-    gen: 8,
-    bonus: ['400 Vitalité', '90 Intelligence', '70 Puissance'],
-    parents: ['Ivoire', 'Orchidée']
-  },
-  {
-    name: 'Turquoise et Orchidée',
-    gen: 8,
-    bonus: ['400 Vitalité', '90 Intelligence', '70 Prospection'],
-    parents: ['Turquoise', 'Orchidée']
-  },
-  {
-    name: 'Ivoire et Turquoise',
-    gen: 8,
-    bonus: ['400 Vitalité', '70 Puissance', '70 Prospection'],
-    parents: ['Ivoire', 'Turquoise']
-  },
-  {
-    name: 'Emeraude',
-    gen: 9,
-    bonus: ['400 Vitalité', '14% Critique'],
-    parents: ['Ivoire et Turquoise', 'Ivoire et Pourpre']
-  },
-  {
-    name: 'Prune',
-    gen: 9,
-    bonus: ['400 Vitalité', '2 Portée'],
-    parents: ['Ivoire et Turquoise', 'Turquoise et Orchidée']
-  },
-  {
-    name: 'Emeraude et Rousse',
-    gen: 10,
-    bonus: ['400 Vitalité', '10% Critique', '45 Soins'],
-    parents: ['Emeraude', 'Rousse']
-  },
-  {
-    name: 'Prune et Rousse',
-    gen: 10,
-    bonus: ['400 Vitalité', '1 Portée', '45 Soins'],
-    parents: ['Prune', 'Rousse']
-  },
-  {
-    name: 'Amande et Emeraude',
-    gen: 10,
-    bonus: ['400 Vitalité', '10% Critique', '1200 Initiative'],
-    parents: ['Amande', 'Emeraude']
-  },
-  {
-    name: 'Prune et Amande',
-    gen: 10,
-    bonus: ['400 Vitalité', '1 Portée', '1200 Initiative'],
-    parents: ['Prune', 'Amande']
-  },
-  {
-    name: 'Dorée et Emeraude',
-    gen: 10,
-    bonus: ['400 Vitalité', '10% Critique', '1 Invocation'],
-    parents: ['Dorée', 'Emeraude']
-  },
-  {
-    name: 'Prune et Dorée',
-    gen: 10,
-    bonus: ['400 Vitalité', '1 Portée', '1 Invocation'],
-    parents: ['Prune', 'Dorée']
-  },
-  {
-    name: 'Emeraude et Indigo',
-    gen: 10,
-    bonus: ['400 Vitalité', '90 Chance', '10% Critique'],
-    parents: ['Emeraude', 'Indigo']
-  },
-  {
-    name: 'Prune et Indigo',
-    gen: 10,
-    bonus: ['400 Vitalité', '90 Chance', '1 Portée'],
-    parents: ['Prune', 'Indigo']
-  },
-  {
-    name: 'Ebène et Emeraude',
-    gen: 10,
-    bonus: ['400 Vitalité', '90 Agilité', '10% Critique'],
-    parents: ['Ebène', 'Emeraude']
-  },
-  {
-    name: 'Prune et Ebène',
-    gen: 10,
-    bonus: ['400 Vitalité', '90 Agilité', '1 Portée'],
-    parents: ['Prune', 'Ebène']
-  },
-  {
-    name: 'Emeraude et Pourpre',
-    gen: 10,
-    bonus: ['400 Vitalité', '90 Force', '10% Critique'],
-    parents: ['Emeraude', 'Pourpre']
-  },
-  {
-    name: 'Prune et Pourpre',
-    gen: 10,
-    bonus: ['400 Vitalité', '90 Force', '1 Portée'],
-    parents: ['Prune', 'Pourpre']
-  },
-  {
-    name: 'Emeraude et Orchidée',
-    gen: 10,
-    bonus: ['400 Vitalité', '90 Intelligence', '10% Critique'],
-    parents: ['Emeraude', 'Orchidée']
-  },
-  {
-    name: 'Prune et Orchidée',
-    gen: 10,
-    bonus: ['400 Vitalité', '90 Intelligence', '1 Portée'],
-    parents: ['Prune', 'Orchidée']
-  },
-  {
-    name: 'Emeraude et Ivoire',
-    gen: 10,
-    bonus: ['400 Vitalité', '70 Puissance', '10% Critique'],
-    parents: ['Emeraude', 'Ivoire']
-  },
-  {
-    name: 'Prune et Ivoire',
-    gen: 10,
-    bonus: ['400 Vitalité', '70 Puissance', '1 Portée'],
-    parents: ['Prune', 'Ivoire']
-  },
-  {
-    name: 'Emeraude et Turquoise',
-    gen: 10,
-    bonus: ['400 Vitalité', '10% Critique', '70 Prospection'],
-    parents: ['Emeraude', 'Turquoise']
-  },
-  {
-    name: 'Prune et Turquoise',
-    gen: 10,
-    bonus: ['400 Vitalité', '1 Portée', '70 Prospection'],
-    parents: ['Prune', 'Turquoise']
-  },
-  {
-    name: 'Prune et Emeraude',
-    gen: 10,
-    bonus: ['400 Vitalité', '10% Critique', '1 Portée'],
-    parents: ['Prune', 'Emeraude']
-  }
-]
-
 // ---------------------------------------------------------------------------
-// Derived lookups
+// Dragodinde back-compat aliases (= the dragodinde species via the registry).
 // ---------------------------------------------------------------------------
-export const COLOR_BY_NAME: ReadonlyMap<string, ColorDef> = new Map(COLORS.map((c) => [c.name, c]))
-export const BASE_COLORS: ReadonlyArray<string> = COLORS.filter((c) => !c.parents).map(
-  (c) => c.name
-)
-export const MAX_GEN = 10
+export const COLORS: ReadonlyArray<ColorDef> = DRAGODINDE_COLORS
+export const COLOR_BY_NAME: ReadonlyMap<string, ColorDef> = byNameOf('dragodinde')
+export const BASE_COLORS: ReadonlyArray<string> = baseColorsOf('dragodinde')
+export const MAX_GEN = maxGenOf('dragodinde')
 
-/** Fold to a comparable key: lower-case, accent-stripped (so "amande" ≡ "Amande", "ebene" ≡ "Ebène"). */
-const colorKey = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
-const COLOR_BY_KEY: ReadonlyMap<string, string> = new Map(
-  COLORS.map((c) => [colorKey(c.name), c.name])
-)
+/** Per-generation accent colour for the UI (dragodinde alias; use genColorOf(species) elsewhere). */
+export const GEN_COLOR: Readonly<Record<number, string>> = genColorOf('dragodinde')
 
-/** Resolve loose user input (case/accent-insensitive) to a canonical colour name, or null if unknown.
- *  E.g. "amande" → "Amande", "ebene et rousse" → "Ebène et Rousse". */
-export function resolveColor(input: string): string | null {
-  return COLOR_BY_KEY.get(colorKey(input)) ?? null
-}
-
-/** Per-generation accent colour for the UI. */
-export const GEN_COLOR: Record<number, string> = {
-  1: '#8d9bb5',
-  2: '#e8607a',
-  3: '#9b8cff',
-  4: '#57c4f2',
-  5: '#c06bff',
-  6: '#f2a857',
-  7: '#f5d04a',
-  8: '#5fe3c0',
-  9: '#57f287',
-  10: '#ffd700'
-}
+/** Resolve loose user input (case/accent-insensitive) to a canonical colour name for a species,
+ *  or null if unknown. E.g. resolveColor('muldo', 'azur') → 'Azur'. */
+export const resolveColor = resolveColorOf
 
 // ---------------------------------------------------------------------------
 // Planner — pure solver over the recipe DAG.
 //
 // Fertility = 1: every cross permanently sterilises BOTH parents, so no bred
-// dragodinde can be reused as a parent. Obtaining one fresh instance of a
-// colour therefore requires building its entire recipe sub-tree from scratch.
+// mount can be reused as a parent. Obtaining one fresh instance of a colour
+// therefore requires building its entire recipe sub-tree from scratch.
 //
 // A "sink" colour is never an ingredient of any recipe, so nothing produces it
 // as a by-product — every sink must be bred explicitly. The non-sink colours
@@ -461,7 +70,7 @@ export function successForLevel(level: number, optima: boolean): number {
  * Recommended tiered policy — the time/effort sweet spot.
  *
  * A miss is never "free": the off-target baby you reuse still needs a full fertility raise,
- * so low success multiplies the number of dragodindes you must raise at EVERY generation.
+ * so low success multiplies the number of mounts you must raise at EVERY generation.
  * Level 100 + optimakina (≈70%) is the knee of the XP curve and roughly halves the count vs
  * an un-levelled cross; the top generations (8–10) are the most expensive to rebuild on a
  * miss, so they're maxed to level 200 (≈100%) to guarantee them.
@@ -476,7 +85,7 @@ export function defaultPolicy(): Record<number, GenPolicy> {
 }
 
 export interface PlanOptions {
-  /** Cap the target generation (2..10). Default 10 = unlock everything. */
+  /** Cap the target generation (2..maxGen). Default maxGen = unlock everything. */
   readonly maxGen: number
   /** Per-generation level/optimakina policy, keyed by the generation being PRODUCED. */
   readonly policy: Readonly<Record<number, GenPolicy>>
@@ -517,7 +126,7 @@ export interface Plan {
   readonly baseCaptures: Readonly<Record<string, number>>
   readonly totalCaptures: number
   readonly totalCrosses: number
-  readonly totalInstances: number // dragodindes that come into existence (captures + crosses + clones)
+  readonly totalInstances: number // mounts that come into existence (captures + crosses + clones)
   readonly totalRaises: number // of those, how many must be raised to féconde (= used as a parent)
   readonly totalClones: number
   readonly totalGenderBuffer: number // extra bred to guarantee both genders
@@ -612,9 +221,10 @@ function solve(
   return { fresh, cloned, genderBuffer, consumed }
 }
 
-/** Compute the cumulative breeding plan for "own >=1 of every colour <= maxGen". */
-export function computePlan(opts: PlanOptions): Plan {
-  const targets = COLORS.filter((c) => c.gen <= opts.maxGen)
+/** Compute the cumulative breeding plan for "own >=1 of every colour <= maxGen" for a species. */
+export function computePlan(species: Species, opts: PlanOptions): Plan {
+  const byName = byNameOf(species)
+  const targets = colorsOf(species).filter((c) => c.gen <= opts.maxGen)
   const used = new Set<string>()
   for (const c of targets) if (c.parents) used.add(c.parents[0]), used.add(c.parents[1])
   const babies = babiesPerCross(opts.reproducteur)
@@ -649,7 +259,7 @@ export function computePlan(opts: PlanOptions): Plan {
   )
 
   const req = floor.fresh
-  const isBase = (n: string) => COLOR_BY_NAME.get(n)?.parents == null
+  const isBase = (n: string) => byName.get(n)?.parents == null
 
   // Group floor demand by generation, cumulative (by fresh production).
   const groups: GenGroup[] = []
@@ -679,7 +289,7 @@ export function computePlan(opts: PlanOptions): Plan {
     Object.entries(o).reduce((a, [n, v]) => a + (pred && !pred(n) ? 0 : v), 0)
 
   const baseCaptures: Record<string, number> = {}
-  for (const b of BASE_COLORS) if (b in req) baseCaptures[b] = req[b]
+  for (const b of baseColorsOf(species)) if (b in req) baseCaptures[b] = req[b]
 
   const totalCaptures = Math.round(sum(floor.fresh, isBase))
   const totalCrosses = Math.round(sum(floor.fresh, (n) => !isBase(n)))

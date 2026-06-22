@@ -1,8 +1,8 @@
 import type { NameParts } from '@dd/core'
-import { GEN_COLOR, genOf, parseName } from '@dd/core'
+import { genColorOf, genOf, parseName, SPECIES } from '@dd/core'
 import { useState } from 'react'
 import { api } from '../api'
-import type { Enclos, ImportRow, ReproStatus } from '../types'
+import type { Enclos, ImportRow, ReproStatus, Species } from '../types'
 import { useMutation } from '../useMutation'
 
 const STATUS: { value: ReproStatus; label: string }[] = [
@@ -16,14 +16,18 @@ const STATUS: { value: ReproStatus; label: string }[] = [
  *  Stock tab and the onboarding wizard. `initialText` pre-fills the paste box (e.g. from the
  *  roster builder). `onImported` fires after a successful import (refresh / advance the wizard). */
 export function ImportByName({
+  species,
   enclos,
   onImported,
   initialText
 }: {
+  species: Species
   enclos: Enclos[]
   onImported: () => void
   initialText?: string
 }) {
+  const meta = SPECIES[species]
+  const genColor = genColorOf(species)
   const [importText, setImportText] = useState(initialText ?? '')
   const [parsed, setParsed] = useState<
     { line: string; parts: NameParts | null; status: ReproStatus }[]
@@ -41,7 +45,7 @@ export function ImportByName({
         .split('\n')
         .map((l) => l.trim())
         .filter(Boolean)
-        .map((line) => ({ line, parts: parseName(line), status: defaultStatus }))
+        .map((line) => ({ line, parts: parseName(species, line), status: defaultStatus }))
     )
   }
   const validParsed = parsed.filter((p) => p.parts)
@@ -57,7 +61,7 @@ export function ImportByName({
     }))
     const enclosId = importEnclos === '' ? null : Number(importEnclos)
     run(
-      api.importMounts(rows, enclosId).then((res) => {
+      api.importMounts(rows, enclosId, species).then((res) => {
         if ('error' in res) {
           setImportMsg('✗ ' + res.error)
           return
@@ -79,14 +83,18 @@ export function ImportByName({
   return (
     <>
       <div className="policy-head">
-        <span>📥 Importer depuis le jeu</span>
-        <span className="muted">colle les noms de tes montures (1 par ligne)</span>
+        <span>
+          📥 Importer depuis le jeu — {meta.icon} {meta.label}
+        </span>
+        <span className="muted">
+          colle les noms de tes {meta.label.toLowerCase()}s (1 par ligne)
+        </span>
       </div>
       <div className="muted small" style={{ marginBottom: 6 }}>
-        Renomme tes montures avec la convention <code>couleur-[K]-sexe-gp1-gp2</code> (ex.{' '}
-        <code>i-f-e-ei</code>), puis colle la liste ici : couleur, sexe, keeper <b>et</b> les deux
-        grands-parents sont décodés du nom. Choisis la destination ci-dessous ; l'état (féconde /
-        fertile / stérile) se règle par ligne.
+        Renomme tes {meta.label.toLowerCase()}s avec la convention{' '}
+        <code>couleur-[K]-sexe-gp1-gp2</code> (ex. <code>i-f-e-ei</code>), puis colle la liste ici :
+        couleur, sexe, keeper <b>et</b> les deux grands-parents sont décodés du nom. Choisis la
+        destination ci-dessous ; l'état (féconde / fertile / stérile) se règle par ligne.
       </div>
       <div className="plan-controls">
         <label>
@@ -97,8 +105,8 @@ export function ImportByName({
           >
             <option value="">Étable</option>
             {enclos.map((e) => (
-              <option key={e.id} value={e.id} disabled={e.dragodindes.length >= 10}>
-                {e.name} ({e.dragodindes.length}/10)
+              <option key={e.id} value={e.id} disabled={e.mounts.length >= 10}>
+                {e.name} ({e.mounts.length}/10)
               </option>
             ))}
           </select>
@@ -160,7 +168,9 @@ export function ImportByName({
                   </td>
                   {p.parts ? (
                     <>
-                      <td style={{ color: GEN_COLOR[genOf(p.parts.color)] }}>{p.parts.color}</td>
+                      <td style={{ color: genColor[genOf(species, p.parts.color)] }}>
+                        {p.parts.color}
+                      </td>
                       <td className="ctr">{p.parts.sex === 'F' ? '♀' : '♂'}</td>
                       <td className="ctr">{p.parts.keeper ? '★' : ''}</td>
                       <td className="muted small">{p.parts.grandparents?.join(' + ') || '—'}</td>

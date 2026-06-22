@@ -1,17 +1,21 @@
 import {
-  COLOR_BY_NAME,
-  COLORS,
+  baseColorsOf,
+  byNameOf,
+  type ColorDef,
+  colorsOf,
   crossOdds,
-  GEN_COLOR,
+  genColorOf,
   makeRng,
+  maxGenOf,
   monteCarlo,
-  type SimMount
+  type SimMount,
+  type Species
 } from '@dd/core'
-import { useMemo, useState } from 'react'
-import type { Dragodinde } from '../types'
+import { useEffect, useMemo, useState } from 'react'
+import type { Mount } from '../types'
 
 /** Your real mounts -> sim feedstock (skip uncoloured & keepers; sterile = clonage feedstock). */
-const toSimInventory = (mounts: Dragodinde[]): SimMount[] =>
+const toSimInventory = (mounts: Mount[]): SimMount[] =>
   mounts
     .filter((m) => m.color && !m.keeper)
     .map((m) => ({
@@ -20,42 +24,6 @@ const toSimInventory = (mounts: Dragodinde[]): SimMount[] =>
       gp: m.grandparents,
       fertile: m.status !== 'sterile'
     }))
-
-const POTENTIAL: Record<string, number> = (() => {
-  const pot: Record<string, number> = {}
-  for (const c of COLORS) pot[c.name] = c.gen
-  for (const c of [...COLORS].sort((a, b) => b.gen - a.gen)) {
-    if (c.parents) for (const p of c.parents) pot[p] = Math.max(pot[p], pot[c.name])
-  }
-  return pot
-})()
-
-const parentsOf = (name: string) => COLOR_BY_NAME.get(name)?.parents ?? null
-const genOf = (name: string) => COLOR_BY_NAME.get(name)?.gen ?? 0
-
-function ancestry(name: string): Set<string> {
-  const seen = new Set<string>()
-  const walk = (n: string) => {
-    if (seen.has(n)) return
-    seen.add(n)
-    parentsOf(n)?.forEach(walk)
-  }
-  walk(name)
-  return seen
-}
-
-/** Per-cross probability of obtaining `child` from its recipe parents (canonical genealogy). */
-function crossProb(child: string, level: number, optima: boolean): number {
-  const p = parentsOf(child)
-  if (!p) return 1
-  const r = crossOdds(
-    { race: p[0], grandparents: parentsOf(p[0]) ?? [] },
-    { race: p[1], grandparents: parentsOf(p[1]) ?? [] },
-    2 * level,
-    optima
-  )
-  return r.outcomes.find((o) => o.race === child)?.prob ?? 0
-}
 
 interface NodeStat {
   count: number // expected number of this colour produced (MC)
@@ -67,13 +35,19 @@ function TreeNode({
   path,
   expanded,
   toggle,
-  stat
+  stat,
+  parentsOf,
+  genOf,
+  genColor
 }: {
   name: string
   path: string
   expanded: Set<string>
   toggle: (p: string) => void
   stat: (race: string) => NodeStat
+  parentsOf: (name: string) => readonly string[] | null
+  genOf: (name: string) => number
+  genColor: Readonly<Record<number, string>>
 }) {
   const p = parentsOf(name)
   const open = expanded.has(path)
@@ -89,7 +63,7 @@ function TreeNode({
         ) : (
           <span className="tree-leaf-dot">●</span>
         )}
-        <span className="tree-dot" style={{ background: GEN_COLOR[gen] }} />
+        <span className="tree-dot" style={{ background: genColor[gen] }} />
         <span className="tree-name">{name}</span>
         <span className="tree-gen muted">gen {gen}</span>
         {s.count > 0 && (
@@ -118,6 +92,9 @@ function TreeNode({
               expanded={expanded}
               toggle={toggle}
               stat={stat}
+              parentsOf={parentsOf}
+              genOf={genOf}
+              genColor={genColor}
             />
           ))}
         </ul>
@@ -126,17 +103,57 @@ function TreeNode({
   )
 }
 
-export function BreedingTree({ mounts }: { mounts: Dragodinde[] }) {
-  const gen10 = COLORS.filter((c) => c.gen === 10).map((c) => c.name)
-  const [target, setTarget] = useState('Emeraude')
+export function BreedingTree({ species, mounts }: { species: Species; mounts: Mount[] }) {
+  // Only this species' mounts feed the planner (mounts is mixed-species from App).
+  const speciesMounts = useMemo(
+    () => mounts.filter((m) => m.species === species),
+    [mounts, species]
+  )
+
+  // Species-scoped colour data + accessors.
+  const colors = colorsOf(species)
+  const byName = byNameOf(species)
+  const genColor = genColorOf(species)
+  const baseColors = baseColorsOf(species)
+  const maxGen = maxGenOf(species)
+
+  const parentsOf = (name: string): readonly string[] | null => byName.get(name)?.parents ?? null
+  const genOf = (name: string): number => byName.get(name)?.gen ?? 0
+
+  // Spine potential: highest gen a colour can ultimately lead to.
+  const potential = useMemo(() => {
+    const pot: Record<string, number> = {}
+    for (const c of colors) pot[c.name] = c.gen
+    for (const c of [...colors].sort((a, b) => b.gen - a.gen)) {
+      if (c.parents) for (const p of c.parents) pot[p] = Math.max(pot[p] ?? 0, pot[c.name])
+    }
+    return pot
+  }, [colors])
+
+  const topColors = useMemo(
+    () => colors.filter((c) => c.gen === maxGen).map((c) => c.name),
+    [colors, maxGen]
+  )
+
+  // Default target = first top-gen colour of THIS species.
+  const defaultTarget = topColors[0] ?? colors[colors.length - 1]?.name ?? ''
+  const [target, setTarget] = useState(defaultTarget)
   const [level, setLevel] = useState(60)
   const [optima, setOptima] = useState(false)
   const [clonage, setClonage] = useState(true)
   const [useCheptel, setUseCheptel] = useState(true)
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(['root']))
+
+  // Reset selection/expansion when the active species changes.
+  useEffect(() => {
+    setTarget(defaultTarget)
+    setExpanded(new Set(['root']))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [species])
+
   // Stable signature so the (sync) sim only re-runs when stock content actually changes, not on
   // every 3s poll (which hands us a fresh array reference with identical data).
-  const usable = toSimInventory(mounts)
+  const usable = toSimInventory(speciesMounts)
   const invSig = JSON.stringify(usable)
 
   const toggle = (p: string) =>
@@ -146,7 +163,31 @@ export function BreedingTree({ mounts }: { mounts: Dragodinde[] }) {
       return n
     })
 
-  const anc = useMemo(() => ancestry(target), [target])
+  /** Per-cross probability of obtaining `child` from its recipe parents (canonical genealogy). */
+  const crossProb = (child: string, lvl: number, opt: boolean): number => {
+    const p = parentsOf(child)
+    if (!p) return 1
+    const r = crossOdds(
+      species,
+      { race: p[0], grandparents: parentsOf(p[0]) ?? [] },
+      { race: p[1], grandparents: parentsOf(p[1]) ?? [] },
+      2 * lvl,
+      opt
+    )
+    return r.outcomes.find((o) => o.race === child)?.prob ?? 0
+  }
+
+  const anc = useMemo(() => {
+    const seen = new Set<string>()
+    const walk = (n: string) => {
+      if (seen.has(n)) return
+      seen.add(n)
+      parentsOf(n)?.forEach(walk)
+    }
+    walk(target)
+    return seen
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target, species])
 
   // Monte Carlo for THIS target colour -> expected count of each colour produced.
   // Seeds from your real stock (grandparents included) when "depuis mon cheptel" is on.
@@ -154,6 +195,7 @@ export function BreedingTree({ mounts }: { mounts: Dragodinde[] }) {
     () =>
       monteCarlo(
         {
+          species,
           targetGen: genOf(target),
           targetColor: target,
           level,
@@ -167,7 +209,8 @@ export function BreedingTree({ mounts }: { mounts: Dragodinde[] }) {
         300,
         makeRng(1234)
       ),
-    [target, level, optima, clonage, useCheptel, invSig]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [species, target, level, optima, clonage, useCheptel, invSig]
   )
 
   const stat = useMemo(() => {
@@ -180,13 +223,14 @@ export function BreedingTree({ mounts }: { mounts: Dragodinde[] }) {
       }
       return { count: mc.perColor[race] ?? 0, prob }
     }
-  }, [mc, level, optima])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mc, level, optima, species])
 
   const byGen = useMemo(() => {
-    const m = new Map<number, (typeof COLORS)[number][]>()
-    for (const c of COLORS) (m.get(c.gen) ?? m.set(c.gen, []).get(c.gen)!).push(c)
+    const m = new Map<number, ColorDef[]>()
+    for (const c of colors) (m.get(c.gen) ?? m.set(c.gen, []).get(c.gen)!).push(c)
     return m
-  }, [])
+  }, [colors])
 
   const expandAll = () => {
     const s = new Set<string>(['root'])
@@ -215,19 +259,21 @@ export function BreedingTree({ mounts }: { mounts: Dragodinde[] }) {
         <label>
           Couleur cible
           <select value={target} onChange={(e) => setTarget(e.target.value)}>
-            <optgroup label="Génération 10">
-              {gen10.map((n) => (
+            <optgroup label={`Génération ${maxGen}`}>
+              {topColors.map((n) => (
                 <option key={n} value={n}>
                   {n}
                 </option>
               ))}
             </optgroup>
             <optgroup label="Toutes">
-              {COLORS.filter((c) => c.parents).map((c) => (
-                <option key={c.name} value={c.name}>
-                  {c.name} (gen {c.gen})
-                </option>
-              ))}
+              {colors
+                .filter((c) => c.parents)
+                .map((c) => (
+                  <option key={c.name} value={c.name}>
+                    {c.name} (gen {c.gen})
+                  </option>
+                ))}
             </optgroup>
           </select>
         </label>
@@ -273,15 +319,11 @@ export function BreedingTree({ mounts }: { mounts: Dragodinde[] }) {
           <div className="card-label">Captures Gen 1 (médiane) pour « {target} »</div>
           <div className="card-value">{Math.round(mc.captures.p50)}</div>
           <div className="card-sub">
-            <span>
-              Amande <b>{Math.round(mc.captures.byRace.Amande)}</b>
-            </span>
-            <span>
-              Dorée <b>{Math.round(mc.captures.byRace.Dorée)}</b>
-            </span>
-            <span>
-              Rousse <b>{Math.round(mc.captures.byRace.Rousse)}</b>
-            </span>
+            {baseColors.map((b) => (
+              <span key={b}>
+                {b} <b>{Math.round(mc.captures.byRace[b] ?? 0)}</b>
+              </span>
+            ))}
             <span>
               p10–p90 {mc.captures.p10}–{mc.captures.p90}
             </span>
@@ -299,26 +341,37 @@ export function BreedingTree({ mounts }: { mounts: Dragodinde[] }) {
 
       <div className="tree-wrap">
         <ul className="tree-root">
-          <TreeNode name={target} path="root" expanded={expanded} toggle={toggle} stat={stat} />
+          <TreeNode
+            name={target}
+            path="root"
+            expanded={expanded}
+            toggle={toggle}
+            stat={stat}
+            parentsOf={parentsOf}
+            genOf={genOf}
+            genColor={genColor}
+          />
         </ul>
       </div>
 
       <div className="policy-head" style={{ marginTop: 16 }}>
-        <span>Carte des 66 couleurs</span>
-        <span className="muted">surbrillance = lignée de « {target} » · ◆ mène au Gen 10</span>
+        <span>Carte des {colors.length} couleurs</span>
+        <span className="muted">
+          surbrillance = lignée de « {target} » · ◆ mène au Gen {maxGen}
+        </span>
       </div>
       <div className="map-grid">
         {[...byGen.keys()]
           .sort((a, b) => a - b)
           .map((g) => (
             <div className="map-gen" key={g}>
-              <div className="map-gen-label" style={{ color: GEN_COLOR[g] }}>
+              <div className="map-gen-label" style={{ color: genColor[g] }}>
                 Gen {g}
               </div>
               <div className="map-chips">
                 {(byGen.get(g) ?? []).map((c) => {
                   const inAnc = anc.has(c.name)
-                  const spine = (POTENTIAL[c.name] ?? c.gen) >= 10
+                  const spine = (potential[c.name] ?? c.gen) >= maxGen
                   const cnt = mc.perColor[c.name] ?? 0
                   return (
                     <button
@@ -326,7 +379,7 @@ export function BreedingTree({ mounts }: { mounts: Dragodinde[] }) {
                       className={
                         'map-chip' + (inAnc ? ' on' : '') + (c.name === target ? ' target' : '')
                       }
-                      style={inAnc ? { borderColor: GEN_COLOR[g] } : undefined}
+                      style={inAnc ? { borderColor: genColor[g] } : undefined}
                       onClick={() => setTarget(c.parents ? c.name : target)}
                       title={c.parents ? `${c.parents[0]} + ${c.parents[1]}` : 'capture sauvage'}
                     >
@@ -350,8 +403,8 @@ export function BreedingTree({ mounts }: { mounts: Dragodinde[] }) {
         Carlo, 300 parties) et le <b>taux de réussite par croisement</b> (moteur de probabilités,
         avec généalogie canonique, votre niveau et optimakina). Seul le Gen 1 se capture. Le
         compteur et les % réagissent au niveau / optimakina / clonage. ◆ = couleur « épine dorsale »
-        menant au Gen 10. Les probabilités réelles dépendent de la généalogie exacte de vos montures
-        — vérifiez-les dans l'onglet Probabilités.
+        menant au Gen {maxGen}. Les probabilités réelles dépendent de la généalogie exacte de vos
+        montures — vérifiez-les dans l'onglet Probabilités.
       </p>
     </div>
   )

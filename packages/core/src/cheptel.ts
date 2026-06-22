@@ -2,7 +2,8 @@
 // and the breeding plan. recommend() and assistantPlan() both used to re-derive these independently
 // (and each ran computePlan a second time); now they share one Cheptel, computed once.
 
-import { COLOR_BY_NAME, computePlan, type GenPolicy, MAX_GEN, type Plan } from './colors.js'
+import { computePlan, type GenPolicy, type Plan } from './colors.js'
+import { byNameOf, maxGenOf, type Species } from './species.js'
 
 /** The minimum a mount must expose for accounting — colour, repro status, keeper flag. Both
  *  InvMount (recommender) and AssistMount (assistant) satisfy it. */
@@ -38,8 +39,9 @@ export interface Cheptel {
 }
 
 /** Derive the full Cheptel from a herd + succès. Pure; the deterministic source the planners share. */
-export function cheptelAccounting(input: CheptelInput): Cheptel {
-  const done = new Set((input.achievements ?? []).filter((c) => COLOR_BY_NAME.has(c)))
+export function cheptelAccounting(species: Species, input: CheptelInput): Cheptel {
+  const byName = byNameOf(species)
+  const done = new Set((input.achievements ?? []).filter((c) => byName.has(c)))
 
   const usableStock: Record<string, number> = {}
   const ownedStock: Record<string, number> = {}
@@ -55,8 +57,9 @@ export function cheptelAccounting(input: CheptelInput): Cheptel {
   for (const c of done) sinkStock[c] = Math.max(1, sinkStock[c] ?? 0)
 
   const policy: Record<number, GenPolicy> = {}
-  for (let g = 2; g <= MAX_GEN; g++) policy[g] = { level: input.level, optima: input.optima }
-  const plan = computePlan({
+  for (let g = 2; g <= maxGenOf(species); g++)
+    policy[g] = { level: input.level, optima: input.optima }
+  const plan = computePlan(species, {
     maxGen: input.targetGen,
     policy,
     reproducteur: false,

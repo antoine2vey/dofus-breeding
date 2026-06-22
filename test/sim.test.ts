@@ -5,7 +5,13 @@ import { describe, expect, it } from 'vitest'
 // AI's `simulate` tool, but it was untested. These assert its interface: the seedable-RNG contract
 // (determinism) and that a from-scratch run reports sane work.
 describe('monteCarlo', () => {
-  const cfg = { targetGen: 4, level: 100, optimakina: true, clonage: true }
+  const cfg = {
+    species: 'dragodinde' as const,
+    targetGen: 4,
+    level: 100,
+    optimakina: true,
+    clonage: true
+  }
 
   it('is deterministic under a fixed seed (the makeRng contract)', () => {
     expect(monteCarlo(cfg, 40, makeRng(42))).toEqual(monteCarlo(cfg, 40, makeRng(42)))

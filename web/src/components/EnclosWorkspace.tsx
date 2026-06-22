@@ -1,9 +1,10 @@
+import { SPECIES } from '@dd/core'
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core'
 import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { useMemo, useState } from 'react'
-import type { Dragodinde, DragoPatch, Enclos, EnclosPatch, Meta } from '../types'
-import { DragodindePane } from './DragodindePane'
+import type { DragoPatch, Enclos, EnclosPatch, Meta, Mount } from '../types'
 import { EnclosPane } from './EnclosPane'
+import { MountPane } from './MountPane'
 import { StablePanel } from './StablePanel'
 
 const mountIdOf = (raw: string | number) => Number(String(raw).replace('mount-', ''))
@@ -22,7 +23,7 @@ export function EnclosWorkspace({
   onDragoDelete
 }: {
   enclos: Enclos[]
-  stable: Dragodinde[]
+  stable: Mount[]
   activeId: number | null
   meta: Meta
   onSelect: (id: number) => void
@@ -39,7 +40,7 @@ export function EnclosWorkspace({
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
   const byId = useMemo(
-    () => new Map([...stable, ...enclos.flatMap((e) => e.dragodindes)].map((m) => [m.id, m])),
+    () => new Map([...stable, ...enclos.flatMap((e) => e.mounts)].map((m) => [m.id, m])),
     [stable, enclos]
   )
 
@@ -73,7 +74,7 @@ export function EnclosWorkspace({
           onEnclosAdd={onEnclosAdd}
           onEnclosDelete={onEnclosDelete}
         />
-        <DragodindePane
+        <MountPane
           enclos={active}
           meta={meta}
           onDragoPatch={onDragoPatch}
@@ -85,7 +86,12 @@ export function EnclosWorkspace({
       <DragOverlay dropAnimation={null}>
         {dragged ? (
           <div className="stable-chip dragging-overlay">
-            <b>{dragged.name}</b>
+            <b>
+              <span className="sc-species" title={SPECIES[dragged.species].label}>
+                {SPECIES[dragged.species].icon}
+              </span>{' '}
+              {dragged.name}
+            </b>
           </div>
         ) : null}
       </DragOverlay>

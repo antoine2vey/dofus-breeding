@@ -1,27 +1,37 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
+import type { Species, SpeciesConfig, SpeciesMeta } from '../types'
 
-/** One dialog, one section at a time — opened from the dedicated header buttons (Webhook / IA). */
+/** One dialog, one section at a time — opened from the dedicated header buttons (Webhook / IA /
+ *  Espèces). */
 export function SettingsDialog({
   open,
   section,
   onClose,
   onConfigured,
   aiConfigured,
-  webhookUrl
+  webhookUrl,
+  speciesConfig,
+  speciesMeta
 }: {
   open: boolean
-  section: 'webhook' | 'ai'
+  section: 'webhook' | 'ai' | 'species'
   onClose: () => void
   onConfigured: (configured: boolean) => void
   aiConfigured?: boolean
   webhookUrl?: string
+  speciesConfig: SpeciesConfig
+  speciesMeta: SpeciesMeta[]
 }) {
   const ref = useRef<HTMLDialogElement>(null)
   const [url, setUrl] = useState('')
   const [msg, setMsg] = useState('')
   const [aiKey, setAiKey] = useState('')
   const [aiMsg, setAiMsg] = useState('')
+  // Local, editable copy of the per-species config so number/checkbox edits feel instant; saved on
+  // each change (the parent refresh via onConfigured re-seeds it when the dialog re-opens).
+  const [cfg, setCfg] = useState<SpeciesConfig>(speciesConfig)
+  const [speciesMsg, setSpeciesMsg] = useState('')
 
   useEffect(() => {
     const dlg = ref.current
@@ -34,6 +44,11 @@ export function SettingsDialog({
   useEffect(() => {
     if (open && section === 'webhook') setUrl(webhookUrl ?? '')
   }, [open, section, webhookUrl])
+
+  // Re-seed the editable species config whenever the dialog (re)opens on that section.
+  useEffect(() => {
+    if (open && section === 'species') setCfg(speciesConfig)
+  }, [open, section, speciesConfig])
 
   const save = async () => {
     const r = await api.setWebhook(url.trim())
@@ -61,9 +76,22 @@ export function SettingsDialog({
     onConfigured(r.webhookConfigured)
   }
 
+  // Patch one species' settings in the local copy and persist the whole config immediately.
+  const patchSpecies = async (
+    sp: Species,
+    patch: Partial<SpeciesConfig[Species]>
+  ): Promise<void> => {
+    const updated: SpeciesConfig = { ...cfg, [sp]: { ...cfg[sp], ...patch } }
+    setCfg(updated)
+    const r = await api.setSpeciesConfig(updated)
+    if (r.speciesConfig) setCfg(r.speciesConfig)
+    setSpeciesMsg('✓ Enregistré')
+    onConfigured(r.webhookConfigured)
+  }
+
   return (
-    <dialog ref={ref} onClose={onClose}>
-      {section === 'webhook' ? (
+    <dialog ref={ref} onClose={onClose} className={section === 'species' ? 'wide' : undefined}>
+      {section === 'webhook' && (
         <>
           <h2>Discord webhook</h2>
           <p className="hint">
@@ -86,7 +114,8 @@ export function SettingsDialog({
           </div>
           {msg && <p className="hint">{msg}</p>}
         </>
-      ) : (
+      )}
+      {section === 'ai' && (
         <>
           <h2>Assistant IA (BYOK)</h2>
           <p className="hint">
@@ -126,6 +155,96 @@ export function SettingsDialog({
             </>
           )}
           {aiMsg && <p className="hint">{aiMsg}</p>}
+        </>
+      )}
+      {section === 'species' && (
+        <>
+          <h2>Espèces & objectifs</h2>
+          <p className="hint">
+            Active les espèces que tu élèves et règle, pour chacune, la génération visée, le niveau,
+            l'optimakina, le clonage et la priorité (poids de l'arbitre cross-espèces).
+          </p>
+          <div className="species-settings">
+            {speciesMeta.map((sm) => {
+              const sp = sm.species
+              const s = cfg[sp]
+              return (
+                <fieldset
+                  key={sp}
+                  className={`species-settings-row${s.enabled ? '' : ' off'}`}
+                  style={{ borderColor: sm.accent }}
+                >
+                  <legend>
+                    <label className="species-enable">
+                      <input
+                        type="checkbox"
+                        checked={s.enabled}
+                        onChange={(e) => patchSpecies(sp, { enabled: e.target.checked })}
+                      />
+                      <span style={{ color: sm.accent }}>
+                        {sm.icon} {sm.label}
+                      </span>
+                    </label>
+                  </legend>
+                  <div className="plan-controls">
+                    <label>
+                      Génération visée
+                      <input
+                        type="number"
+                        min={1}
+                        value={s.targetGen}
+                        onChange={(e) =>
+                          patchSpecies(sp, { targetGen: Number(e.target.value) || 0 })
+                        }
+                      />
+                    </label>
+                    <label>
+                      Niveau
+                      <input
+                        type="number"
+                        min={1}
+                        value={s.level}
+                        onChange={(e) => patchSpecies(sp, { level: Number(e.target.value) || 0 })}
+                      />
+                    </label>
+                    <label>
+                      Priorité
+                      <input
+                        type="number"
+                        min={0}
+                        value={s.priority}
+                        onChange={(e) =>
+                          patchSpecies(sp, { priority: Number(e.target.value) || 0 })
+                        }
+                      />
+                    </label>
+                    <label className="inline-check">
+                      <input
+                        type="checkbox"
+                        checked={s.optimakina}
+                        onChange={(e) => patchSpecies(sp, { optimakina: e.target.checked })}
+                      />
+                      Optimakina
+                    </label>
+                    <label className="inline-check">
+                      <input
+                        type="checkbox"
+                        checked={s.clonage}
+                        onChange={(e) => patchSpecies(sp, { clonage: e.target.checked })}
+                      />
+                      Clonage
+                    </label>
+                  </div>
+                </fieldset>
+              )
+            })}
+          </div>
+          <div className="row">
+            <button className="ghost" onClick={onClose}>
+              Close
+            </button>
+          </div>
+          {speciesMsg && <p className="hint">{speciesMsg}</p>}
         </>
       )}
     </dialog>

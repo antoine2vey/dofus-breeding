@@ -1,25 +1,19 @@
-// Deterministic "next best actions" recommender. Given the live inventory, free enclos
-// slots and a target generation, it ranks: which pairs to breed now, what Gen-1 to capture,
-// and what to recycle (clone same-colour steriles / extract dead-weight). Pure — reused by
-// the /api/recommend endpoint and exposed as a tool to the AI agent.
+// Deterministic "next best actions" recommender for ONE species. Given the live inventory, free
+// enclos slots and a target generation, it ranks: which pairs to breed now, what Gen-1 to capture,
+// and what to recycle (clone same-colour steriles / extract dead-weight). Pure — reused by the
+// /api/recommend endpoint, the cross-species arbiter, and exposed as a tool to the AI agent.
 
 import { type Cheptel, cheptelAccounting } from './cheptel.js'
-import { COLOR_BY_NAME, COLORS } from './colors.js'
 import { crossOdds } from './odds.js'
-
-const BASES = ['Amande', 'Dorée', 'Rousse'] as const
-
-/** Highest generation a colour can ultimately lead to (spine potential). */
-const POTENTIAL: Record<string, number> = (() => {
-  const pot: Record<string, number> = {}
-  for (const c of COLORS) pot[c.name] = c.gen
-  for (const c of [...COLORS].sort((a, b) => b.gen - a.gen)) {
-    if (c.parents) for (const p of c.parents) pot[p] = Math.max(pot[p], pot[c.name])
-  }
-  return pot
-})()
-
-const genOf = (color: string) => COLOR_BY_NAME.get(color)?.gen ?? 0
+import {
+  baseColorsOf,
+  byNameOf,
+  colorsOf,
+  genOf,
+  potentialOf,
+  type Species,
+  speciesDef
+} from './species.js'
 
 /** In-game reproduction state: sterile (used up) → fertile (not yet ready) → feconde (ready now). */
 export type ReproStatus = 'sterile' | 'fertile' | 'feconde'
@@ -89,13 +83,17 @@ export interface Recommendation {
 // fall back to colour/sex/id only when a name isn't recorded.
 const label = (m: InvMount) => m.name || `${m.color || '?'} ${m.sex === 'F' ? '♀' : '♂'} #${m.id}`
 
-export function recommend(input: RecommendInput): Recommendation {
+export function recommend(species: Species, input: RecommendInput): Recommendation {
   const { mounts, targetGen, freeSlots, level, optimakina } = input
+  const POTENTIAL = potentialOf(species)
+  const byName = byNameOf(species)
+  const gen = (color: string) => genOf(species, color)
+
   // The stock sets + plan come from one cheptel accounting (built here when called standalone, or
   // reused from assistantPlan). `obtained` = own OR succès; `plan.demand` = what's still needed.
   const { obtained, plan } =
     input.accounting ??
-    cheptelAccounting({
+    cheptelAccounting(species, {
       mounts,
       achievements: input.achievements,
       targetGen,
@@ -103,20 +101,20 @@ export function recommend(input: RecommendInput): Recommendation {
       optima: optimakina,
       clonage: input.clonage
     })
-  const highestGen = Math.max(0, ...mounts.map((m) => genOf(m.color)))
+  const highestGen = Math.max(0, ...mounts.map((m) => gen(m.color)))
 
   // Colours <= targetGen we don't yet own.
-  const missingToTarget = COLORS.filter((c) => c.gen <= targetGen && !obtained.has(c.name)).map(
-    (c) => c.name
-  )
+  const missingToTarget = colorsOf(species)
+    .filter((c) => c.gen <= targetGen && !obtained.has(c.name))
+    .map((c) => c.name)
 
   // Value of producing a colour: spine progress ONLY if the plan still needs it (so a "done" or
   // already-covered colour with zero demand scores ~0 and isn't bred), plus a coverage bonus for a
   // goal colour we still lack (done colours are `obtained` → excluded from coverage).
   const value = (race: string) => {
-    const pot = POTENTIAL[race] ?? genOf(race)
+    const pot = POTENTIAL[race] ?? gen(race)
     const needed = (plan.demand[race] ?? 0) > 0
-    let v = pot >= targetGen && needed ? Math.pow(3, genOf(race)) : 0.001
+    let v = pot >= targetGen && needed ? Math.pow(3, gen(race)) : 0.001
     if (!obtained.has(race)) v += 1e6
     return v
   }
@@ -138,6 +136,7 @@ export function recommend(input: RecommendInput): Recommendation {
   for (const m of males) {
     for (const f of females) {
       const r = crossOdds(
+        species,
         { race: m.color, grandparents: m.grandparents },
         { race: f.color, grandparents: f.grandparents },
         2 * level,
@@ -153,12 +152,10 @@ export function recommend(input: RecommendInput): Recommendation {
       if (score <= 0.01) continue
       // A cross must step UP: produce — at meaningful odds — a colour strictly more valuable than
       // its priciest parent. With fertility = 1 both parents are sterilised by the cross, so a pair
-      // whose best outcome is no better than a parent it consumes only destroys net supply: a
-      // self-cross (Dorée et Rousse × Dorée → Dorée et Rousse) or a lateral (Amande × Dorée et
-      // Rousse → Amande et Rousse, burning a scarce gen-2 to make another gen-2). Every real recipe
-      // yields a child of strictly higher generation — hence higher value — than BOTH parents, so
-      // this never drops legitimate progress; it just stops the planner cannibalising a scarce
-      // colour to remake an equal/cheaper one (the cheap recipe, e.g. Dorée × Rousse, is preferred).
+      // whose best outcome is no better than a parent it consumes only destroys net supply. Every
+      // real recipe yields a child of strictly higher generation — hence higher value — than BOTH
+      // parents, so this never drops legitimate progress; it just stops cannibalising a scarce
+      // colour to remake an equal/cheaper one.
       if (maxOutVal <= Math.max(value(m.color), value(f.color))) continue
       scored.push({ m, f, score, r })
     }
@@ -172,12 +169,8 @@ export function recommend(input: RecommendInput): Recommendation {
     if (used.has(s.m.id) || used.has(s.f.id)) continue
     used.add(s.m.id)
     used.add(s.f.id)
-    // The outcome list stays sorted by probability (honest odds). But the RATIONALE must name
-    // the outcome that actually EARNED the cross its score (max prob × value), not the most
-    // likely one: a lineage-tainted parent (e.g. a gen-6 grandparent) can make an already-
-    // owned, demand-0 by-product the most probable outcome even though a lower-gen outcome is
-    // the real reason the pair was picked. (A shown cross has score > 0.01, so its driver
-    // always has value > 0.001 — the rationale never names pure dead-weight.)
+    // The outcome list stays sorted by probability (honest odds). But the RATIONALE must name the
+    // outcome that actually EARNED the cross its score (max prob × value), not the most likely one.
     const top = s.r.outcomes
       .filter((o) => o.prob > 0.02)
       .slice(0, 4)
@@ -201,12 +194,15 @@ export function recommend(input: RecommendInput): Recommendation {
     })
   }
 
-  // ── Capture: only Amande/Dorée/Rousse are wild-capturable; counts come from the plan above. ──
+  // ── Capture: only the species' Gen-1 base colours are wild-capturable; counts from the plan. ──
+  const cap = speciesDef(species).capture
+  const capReason = cap.location
+    ? `captures pour la gen ${targetGen} — ${cap.location}`
+    : `captures nécessaires pour la gen ${targetGen}`
   const capture: CaptureAction[] = []
-  for (const c of BASES) {
+  for (const c of baseColorsOf(species)) {
     const n = Math.round(plan.baseCaptures[c] ?? 0)
-    if (n > 0)
-      capture.push({ color: c, count: n, reason: `captures nécessaires pour la gen ${targetGen}` })
+    if (n > 0) capture.push({ color: c, count: n, reason: capReason })
   }
 
   // ── Recycle: clone same-colour sterile pairs; extract dead-weight steriles ──
@@ -223,12 +219,12 @@ export function recommend(input: RecommendInput): Recommendation {
         kind: 'clone',
         color,
         ids: g.slice(0, 2).map((m) => m.id),
-        reason: `2 stériles → 1 survivante fertile (mène à gen ${POTENTIAL[color] ?? genOf(color)})`
+        reason: `2 stériles → 1 survivante fertile (mène à gen ${POTENTIAL[color] ?? gen(color)})`
       })
     }
   }
   for (const [color, g] of byColor) {
-    const pot = POTENTIAL[color] ?? genOf(color)
+    const pot = POTENTIAL[color] ?? gen(color)
     if (pot < targetGen && g.length < 2) {
       recycle.push({
         kind: 'extract',
@@ -242,7 +238,7 @@ export function recommend(input: RecommendInput): Recommendation {
   return {
     targetGen,
     highestGen,
-    obtainedColors: [...obtained].filter((c) => genOf(c) <= targetGen).length,
+    obtainedColors: [...obtained].filter((c) => gen(c) <= targetGen).length,
     missingToTarget,
     breed,
     capture,

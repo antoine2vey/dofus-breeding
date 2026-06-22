@@ -1,12 +1,15 @@
+import { SPECIES } from '@dd/core'
 import { useState } from 'react'
-import type { Enclos } from '../types'
+import type { Enclos, Species } from '../types'
 import { ImportByName } from './ImportByName'
 import { RosterBuilder } from './RosterBuilder'
 
 const STEPS = 4
 
-/** Prompt the user feeds to an AI (with a screenshot of their in-game list) to extract names. */
-const AI_PROMPT = `Voici une capture d'écran de ma liste de dragodindes dans Dofus. Donne-moi uniquement la liste des NOMS des montures, un nom par ligne, sans numéro ni aucun autre texte. Les noms suivent le format couleur-[K]-sexe-gp1-gp2 (ex. i-f-e-ei, ad-K-f-d-a). Réponds avec la liste brute uniquement.`
+/** Prompt the user feeds to an AI (with a screenshot of their in-game list) to extract names.
+ *  Species-aware so the AI is told which mount type it's looking at. */
+const aiPrompt = (species: Species): string =>
+  `Voici une capture d'écran de ma liste de ${SPECIES[species].label.toLowerCase()}s dans Dofus. Donne-moi uniquement la liste des NOMS des montures, un nom par ligne, sans numéro ni aucun autre texte. Les noms suivent le format couleur-[K]-sexe-gp1-gp2 (ex. i-f-e-ei, ad-K-f-d-a). Réponds avec la liste brute uniquement.`
 
 /** First-run guide, focused on getting data in: intro → convention → name & extract → import.
  *  Recommended flow: name the mounts in-game, screenshot the list filtered by repro state, and use
@@ -15,11 +18,13 @@ const AI_PROMPT = `Voici une capture d'écran de ma liste de dragodindes dans Do
 export function OnboardingWizard({
   open,
   onClose,
+  species = 'dragodinde',
   enclos,
   onImported
 }: {
   open: boolean
   onClose: () => void
+  species?: Species
   enclos: Enclos[]
   onImported: () => void
 }) {
@@ -27,11 +32,13 @@ export function OnboardingWizard({
   const [promptCopied, setPromptCopied] = useState(false)
   if (!open) return null
 
+  const meta = SPECIES[species]
+  const aiText = aiPrompt(species)
   const last = step === STEPS - 1
   const next = () => setStep((s) => Math.min(STEPS - 1, s + 1))
   const prev = () => setStep((s) => Math.max(0, s - 1))
   const copyPrompt = () => {
-    navigator.clipboard?.writeText(AI_PROMPT).then(() => {
+    navigator.clipboard?.writeText(aiText).then(() => {
       setPromptCopied(true)
       setTimeout(() => setPromptCopied(false), 1400)
     })
@@ -48,8 +55,11 @@ export function OnboardingWizard({
           <div className="onboarding-step">
             <h2>👋 Bienvenue</h2>
             <p>
-              Cette appli suit ta <b>reproduction de dragodindes</b> vers la collection des 66
-              couleurs.
+              Cette appli suit ta{' '}
+              <b>
+                reproduction de {meta.icon} {meta.label.toLowerCase()}s
+              </b>{' '}
+              vers la collection complète des couleurs.
             </p>
             <p>
               Pour démarrer, on importe ton stock <b>par le nom en jeu</b> : tu renommes tes
@@ -94,8 +104,8 @@ export function OnboardingWizard({
           <h2>Récupère tes noms</h2>
           <ol className="onboarding-howto">
             <li>
-              <b>Renomme tes dragodindes en jeu</b> avec la convention (besoin d'aide pour les codes
-              ? le constructeur en bas les génère).
+              <b>Renomme tes {meta.label.toLowerCase()}s en jeu</b> avec la convention (besoin
+              d'aide pour les codes ? le constructeur en bas les génère).
             </li>
             <li>
               En jeu, <b>filtre par état</b> — féconde, puis fertile, puis stérile — et fais une{' '}
@@ -107,7 +117,7 @@ export function OnboardingWizard({
             </li>
           </ol>
           <div className="ai-prompt">
-            <textarea className="import-area" readOnly value={AI_PROMPT} rows={4} />
+            <textarea className="import-area" readOnly value={aiText} rows={4} />
             <button type="button" className="mini" onClick={copyPrompt}>
               {promptCopied ? 'copié ✓' : '📋 copier le prompt'}
             </button>
@@ -118,7 +128,7 @@ export function OnboardingWizard({
           </p>
           <details className="onboarding-builder">
             <summary>🔧 Constructeur de noms (aide aux codes couleur)</summary>
-            <RosterBuilder />
+            <RosterBuilder species={species} />
           </details>
         </div>
 
@@ -130,7 +140,7 @@ export function OnboardingWizard({
               <b>destination</b> et l'<b>état</b>, puis <b>Analyser</b> et <b>Importer</b> — c'est
               la liste en jeu qui fait foi.
             </p>
-            <ImportByName enclos={enclos} onImported={onImported} />
+            <ImportByName species={species} enclos={enclos} onImported={onImported} />
           </div>
         )}
 

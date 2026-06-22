@@ -5,11 +5,14 @@ dist/
 web/dist/
 *.tsbuildinfo
 
-# database
+# database, snapshots & local backups
 *.db
-data.db-journal
-data.db-wal
-data.db-shm
+*.db-shm
+*.db-wal
+*.db-journal
+*.bak
+*.bak-*
+*.bak.*
 
 # env & local
 .env

@@ -16,7 +16,7 @@ const base = { targetGen: 10, freeSlots: 99, level: 60, optimakina: false, clona
 describe('recommend', () => {
   it('achievements drop done colours from missingToTarget and cut captures', () => {
     const doneGen4 = COLORS.filter((c) => c.gen <= 4).map((c) => c.name)
-    const rec = recommend({
+    const rec = recommend('dragodinde', {
       ...base,
       mounts: [],
       targetGen: 5,
@@ -28,7 +28,7 @@ describe('recommend', () => {
     expect(rec.missingToTarget).not.toContain('Indigo et Rousse') // done → off the goal
     expect(rec.missingToTarget).toContain('Pourpre') // gen 5, not done
     const caps = (r: ReturnType<typeof recommend>) => r.capture.reduce((n, c) => n + c.count, 0)
-    const ctl = recommend({
+    const ctl = recommend('dragodinde', {
       ...base,
       mounts: [],
       targetGen: 5,
@@ -40,7 +40,7 @@ describe('recommend', () => {
   })
 
   it('breeds a step-up recipe from cheap bases, never a self/lateral cross', () => {
-    const rec = recommend({
+    const rec = recommend('dragodinde', {
       ...base,
       mounts: [
         mount({ id: 1, color: 'Dorée', sex: 'M' }),
@@ -55,7 +55,7 @@ describe('recommend', () => {
   })
 
   it('intended names the colour the cross is FOR — the recipe child, not a by-product', () => {
-    const rec = recommend({
+    const rec = recommend('dragodinde', {
       ...base,
       mounts: [
         mount({ id: 1, color: 'Amande', sex: 'M' }),
@@ -67,7 +67,7 @@ describe('recommend', () => {
   })
 
   it('breed actions come back ranked by score (descending)', () => {
-    const rec = recommend({
+    const rec = recommend('dragodinde', {
       ...base,
       mounts: [
         mount({ id: 1, color: 'Dorée', sex: 'M' }),

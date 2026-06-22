@@ -1,4 +1,13 @@
-import { buildName, COLOR_BY_NAME, parseName } from '@dd/core'
+import {
+  buildName,
+  byNameOf,
+  mergeSpeciesConfig,
+  normalizeSpecies,
+  parseName,
+  SPECIES,
+  type Species,
+  type SpeciesConfig
+} from '@dd/core'
 import { SqlClient } from '@effect/sql'
 import { Effect, FiberRef, Option } from 'effect'
 import { decryptSecret, encryptSecret } from './crypto.js'
@@ -6,7 +15,6 @@ import {
   advanceEnclos,
   clamp,
   DEFAULT_FOCUS,
-  type Dragodinde,
   type Enclos,
   emptyFuel,
   FOCUSABLE,
@@ -19,6 +27,7 @@ import {
   MAX_ENCLOS,
   MAX_FOCUS,
   MAX_STABLE,
+  type Mount,
   type ReproStatus,
   reproStatus,
   SERENITY_MAX,
@@ -44,6 +53,7 @@ interface EnclosRow {
 
 interface DragoRow {
   readonly id: number
+  readonly species: string // 'dragodinde' | 'muldo' | 'volkorne' (backfilled 'dragodinde')
   readonly enclos_id: number | null
   readonly name: string
   readonly stat_endurance: number
@@ -68,8 +78,9 @@ const statusFromRow = (r: DragoRow): ReproStatus => {
   return (r.fertile ?? 1) === 0 ? 'sterile' : 'feconde'
 }
 
-const dragoFromRow = (r: DragoRow): Dragodinde => ({
+const mountFromRow = (r: DragoRow): Mount => ({
   id: r.id,
+  species: normalizeSpecies(r.species),
   name: r.name,
   stats: {
     endurance: r.stat_endurance,
@@ -112,7 +123,8 @@ export interface DragoPatch {
   readonly grandparents?: ReadonlyArray<string>
 }
 
-/** One mount to bulk-import (decoded from an in-game name, with fertility from the screen). */
+/** One mount to bulk-import (decoded from an in-game name, with fertility from the screen). The
+ *  species is supplied once to importMounts (import is species-scoped), not per row. */
 export interface ImportRow {
   readonly name?: string
   readonly color: string
@@ -123,13 +135,15 @@ export interface ImportRow {
 }
 
 export interface SeedInput {
+  readonly species?: Species
   readonly color?: string
   readonly sex?: Sex
   readonly status?: ReproStatus
   readonly name?: string
 }
 
-/** Record one breeding: a baby of `color`/`sex` (born to the stable) whose parents are sterilised. */
+/** Record one breeding: a baby of `color`/`sex` (born to the stable) whose parents are sterilised.
+ *  The baby's species is derived from the parents (same-species only). */
 export interface CrossInput {
   readonly parentAId: number
   readonly parentBId: number
@@ -149,7 +163,7 @@ export interface CompletedItem {
   readonly kind: 'focus' | 'feconde' // focus goals maxed, or just became féconde (ready to breed)
   readonly enclosName: string
   readonly focus: ReadonlyArray<FocusKey>
-  readonly dragodinde: Dragodinde
+  readonly mount: Mount
 }
 
 /** A sweep's completions for one user — routed to that user's own webhook. */
@@ -164,10 +178,10 @@ const sanitizeFocus = (input: ReadonlyArray<string>): ReadonlyArray<FocusKey> =>
   return valid.slice(Math.max(0, valid.length - MAX_FOCUS))
 }
 
-// Re-derive a dragodinde's done-state from its stats + the enclos focus. Notifications
-// fire only on a tick transition, so an edit that already satisfies the goal is marked
-// done (no ping); one that drops below re-arms.
-const withDoneState = (d: Dragodinde, focus: ReadonlyArray<FocusKey>): Dragodinde => ({
+// Re-derive a mount's done-state from its stats + the enclos focus. Notifications fire only on a
+// tick transition, so an edit that already satisfies the goal is marked done (no ping); one that
+// drops below re-arms.
+const withDoneState = (d: Mount, focus: ReadonlyArray<FocusKey>): Mount => ({
   ...d,
   notified: focusAllMaxed(focus, d.stats)
 })
@@ -195,24 +209,60 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
         ticked_at INTEGER NOT NULL DEFAULT 0
       )
     `
-    yield* sql`
-      CREATE TABLE IF NOT EXISTS dragodinde (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        enclos_id INTEGER REFERENCES enclos(id) ON DELETE SET NULL,
-        name TEXT NOT NULL,
-        stat_endurance INTEGER NOT NULL DEFAULT 0,
-        stat_maturite INTEGER NOT NULL DEFAULT 0,
-        stat_amour INTEGER NOT NULL DEFAULT 0,
-        stat_serenity INTEGER NOT NULL DEFAULT 0,
-        notified INTEGER NOT NULL DEFAULT 0
+
+    // ── Mounts table. Generalised from the original single-species `dragodinde` table. The species
+    //    migration RENAMES dragodinde -> mount FIRST, then every later step targets `mount`. This
+    //    must work for a FRESH db, a renamed pre-multi-user db (data.remote-snapshot.db), AND an
+    //    already-multi-user db (data.db), idempotently. ──
+    const tbls = yield* sql<{
+      name: string
+    }>`SELECT name FROM sqlite_master WHERE type='table' AND name IN ('dragodinde','mount')`
+    const haveTbl = new Set(tbls.map((t) => t.name))
+    if (haveTbl.has('dragodinde') && haveTbl.has('mount')) {
+      // Half-migrated: refuse to guess which is canonical.
+      yield* Effect.die(
+        new Error(
+          'Repo migration: both `dragodinde` and `mount` tables exist — manual intervention needed'
+        )
       )
-    `
-    // Additive migration: breeding identity + lineage columns (Phase 1). The base schema
-    // only does CREATE TABLE IF NOT EXISTS, so add any missing columns to existing DBs.
-    const dragoCols = yield* sql<{ name: string }>`SELECT name FROM pragma_table_info('dragodinde')`
-    const haveCol = new Set(dragoCols.map((c) => c.name))
+    }
+    if (haveTbl.has('dragodinde')) {
+      yield* sql`ALTER TABLE dragodinde RENAME TO mount`
+    } else if (!haveTbl.has('mount')) {
+      // Fresh db: create the full mount schema directly (nullable enclos_id + all columns).
+      yield* sql`
+        CREATE TABLE mount (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          enclos_id INTEGER REFERENCES enclos(id) ON DELETE SET NULL,
+          name TEXT NOT NULL,
+          stat_endurance INTEGER NOT NULL DEFAULT 0,
+          stat_maturite INTEGER NOT NULL DEFAULT 0,
+          stat_amour INTEGER NOT NULL DEFAULT 0,
+          stat_serenity INTEGER NOT NULL DEFAULT 0,
+          notified INTEGER NOT NULL DEFAULT 0,
+          color TEXT NOT NULL DEFAULT '',
+          sex TEXT NOT NULL DEFAULT 'F',
+          fertile INTEGER NOT NULL DEFAULT 1,
+          keeper INTEGER NOT NULL DEFAULT 0,
+          parent_a_id INTEGER,
+          parent_b_id INTEGER,
+          grand_a TEXT,
+          grand_b TEXT,
+          status TEXT NOT NULL DEFAULT 'fertile',
+          species TEXT NOT NULL DEFAULT 'dragodinde',
+          user_id TEXT
+        )`
+    }
+
+    // Recompute the column picture from `mount` (after the rename) — every step below targets mount.
+    const mountCols = yield* sql<{
+      name: string
+      notnull: number
+    }>`SELECT name, "notnull" FROM pragma_table_info('mount')`
+    const haveCol = new Set(mountCols.map((c) => c.name))
     const ensureCol = (name: string, ddl: string) =>
-      haveCol.has(name) ? Effect.void : sql.unsafe(`ALTER TABLE dragodinde ADD COLUMN ${ddl}`)
+      haveCol.has(name) ? Effect.void : sql.unsafe(`ALTER TABLE mount ADD COLUMN ${ddl}`)
+
     yield* ensureCol('color', "color TEXT NOT NULL DEFAULT ''")
     yield* ensureCol('sex', "sex TEXT NOT NULL DEFAULT 'F'")
     yield* ensureCol('fertile', 'fertile INTEGER NOT NULL DEFAULT 1') // legacy, kept for old DBs
@@ -221,8 +271,7 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
     const addedStatus = !haveCol.has('status')
     yield* ensureCol('status', "status TEXT NOT NULL DEFAULT 'fertile'")
     if (addedStatus) {
-      // sterile if it had bred; else féconde only when its 3 gauges are maxed, otherwise fertile.
-      yield* sql`UPDATE dragodinde SET status = CASE
+      yield* sql`UPDATE mount SET status = CASE
         WHEN fertile = 0 THEN 'sterile'
         WHEN stat_endurance >= ${STAT_MAX} AND stat_maturite >= ${STAT_MAX} AND stat_amour >= ${STAT_MAX} THEN 'feconde'
         ELSE 'fertile' END`
@@ -230,16 +279,10 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
 
     // Étable rework: enclos_id must be NULLABLE (null = stable) with ON DELETE SET NULL. Old DBs
     // created it NOT NULL + ON DELETE CASCADE — rebuild the table (SQLite can't ALTER a constraint).
-    const enclosCol = dragoCols.length
-      ? yield* sql<{
-          name: string
-          notnull: number
-        }>`SELECT name, "notnull" FROM pragma_table_info('dragodinde')`
-      : []
-    const enclosNotNull = enclosCol.find((c) => c.name === 'enclos_id')?.notnull === 1
+    const enclosNotNull = mountCols.find((c) => c.name === 'enclos_id')?.notnull === 1
     if (enclosNotNull) {
       yield* sql`
-        CREATE TABLE dragodinde_new (
+        CREATE TABLE mount_new (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           enclos_id INTEGER REFERENCES enclos(id) ON DELETE SET NULL,
           name TEXT NOT NULL,
@@ -259,13 +302,13 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
           status TEXT NOT NULL DEFAULT 'fertile'
         )`
       yield* sql`
-        INSERT INTO dragodinde_new
+        INSERT INTO mount_new
           (id, enclos_id, name, stat_endurance, stat_maturite, stat_amour, stat_serenity, notified,
            color, sex, fertile, keeper, parent_a_id, parent_b_id, grand_a, grand_b, status)
         SELECT id, enclos_id, name, stat_endurance, stat_maturite, stat_amour, stat_serenity, notified,
-           color, sex, fertile, keeper, parent_a_id, parent_b_id, grand_a, grand_b, status FROM dragodinde`
-      yield* sql`DROP TABLE dragodinde`
-      yield* sql`ALTER TABLE dragodinde_new RENAME TO dragodinde`
+           color, sex, fertile, keeper, parent_a_id, parent_b_id, grand_a, grand_b, status FROM mount`
+      yield* sql`DROP TABLE mount`
+      yield* sql`ALTER TABLE mount_new RENAME TO mount`
     }
     yield* ensureCol('parent_a_id', 'parent_a_id INTEGER')
     yield* ensureCol('parent_b_id', 'parent_b_id INTEGER')
@@ -273,51 +316,69 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
     const addedGrandA = !haveCol.has('grand_a')
     yield* ensureCol('grand_a', 'grand_a TEXT')
     yield* ensureCol('grand_b', 'grand_b TEXT')
-    // One-time backfill from existing parent rows so current lineage isn't lost.
     if (addedGrandA) {
       yield* sql`
-        UPDATE dragodinde SET grand_a = (SELECT p.color FROM dragodinde p WHERE p.id = dragodinde.parent_a_id)
+        UPDATE mount SET grand_a = (SELECT p.color FROM mount p WHERE p.id = mount.parent_a_id)
         WHERE parent_a_id IS NOT NULL
       `
       yield* sql`
-        UPDATE dragodinde SET grand_b = (SELECT p.color FROM dragodinde p WHERE p.id = dragodinde.parent_b_id)
+        UPDATE mount SET grand_b = (SELECT p.color FROM mount p WHERE p.id = mount.parent_b_id)
         WHERE parent_b_id IS NOT NULL
       `
     }
+    // Species discriminator (backfilled 'dragodinde' for every pre-existing row).
+    yield* ensureCol('species', "species TEXT NOT NULL DEFAULT 'dragodinde'")
 
-    // Succès: colours whose in-game achievement is unlocked — per user (composite PK).
-    yield* sql`CREATE TABLE IF NOT EXISTS achievement (user_id TEXT, color TEXT NOT NULL, PRIMARY KEY (user_id, color))`
-
-    // ── Multi-user (Phase 2): every cheptel table carries the owning user (a Better Auth user id).
-    // Pre-existing rows get user_id = NULL (orphans); the seed owner claims them on first login.
-    const enclosCols = yield* sql<{ name: string }>`SELECT name FROM pragma_table_info('enclos')`
-    if (!enclosCols.some((c) => c.name === 'user_id'))
-      yield* sql.unsafe(`ALTER TABLE enclos ADD COLUMN user_id TEXT`)
-    if (!haveCol.has('user_id')) yield* sql.unsafe(`ALTER TABLE dragodinde ADD COLUMN user_id TEXT`)
-    yield* sql`CREATE INDEX IF NOT EXISTS idx_enclos_user ON enclos(user_id)`
-    yield* sql`CREATE INDEX IF NOT EXISTS idx_dragodinde_user ON dragodinde(user_id)`
-    // Elapsed-time model (#6): per-enclos last-tick timestamp. Existing enclos start "now" so they
-    // don't replay history on the first sweep.
-    if (!enclosCols.some((c) => c.name === 'ticked_at'))
-      yield* sql.unsafe(`ALTER TABLE enclos ADD COLUMN ticked_at INTEGER NOT NULL DEFAULT 0`)
-    yield* sql`UPDATE enclos SET ticked_at = ${Date.now()} WHERE ticked_at = 0`
-    // Rebuild an old single-PK achievement (color only) into the composite (user_id, color) form.
+    // Succès table. Final shape is the per-(user, species, colour) composite PK. Chain the rebuilds
+    // so a pre-multi-user single-PK (color only) table goes legacy → (user_id,color) → 3-col in one
+    // boot; fresh dbs get the 3-col directly.
+    yield* sql`CREATE TABLE IF NOT EXISTS achievement (user_id TEXT, species TEXT NOT NULL DEFAULT 'dragodinde', color TEXT NOT NULL, PRIMARY KEY (user_id, species, color))`
     const achCols = yield* sql<{ name: string }>`SELECT name FROM pragma_table_info('achievement')`
-    if (!achCols.some((c) => c.name === 'user_id')) {
+    const achHas = new Set(achCols.map((c) => c.name))
+    if (!achHas.has('user_id')) {
+      // legacy single-PK (color) → (user_id, color); orphan rows carry user_id NULL.
       yield* sql`ALTER TABLE achievement RENAME TO achievement_old`
       yield* sql`CREATE TABLE achievement (user_id TEXT, color TEXT NOT NULL, PRIMARY KEY (user_id, color))`
       yield* sql`INSERT INTO achievement (user_id, color) SELECT NULL, color FROM achievement_old`
       yield* sql`DROP TABLE achievement_old`
     }
+    if (!achHas.has('species')) {
+      // (user_id, color) → (user_id, species, color); backfill species 'dragodinde'.
+      yield* sql`ALTER TABLE achievement RENAME TO achievement_old2`
+      yield* sql`CREATE TABLE achievement (user_id TEXT, species TEXT NOT NULL DEFAULT 'dragodinde', color TEXT NOT NULL, PRIMARY KEY (user_id, species, color))`
+      yield* sql`INSERT INTO achievement (user_id, species, color) SELECT user_id, 'dragodinde', color FROM achievement_old2`
+      yield* sql`DROP TABLE achievement_old2`
+    }
 
-    // Per-user app settings (Discord webhook, encrypted AI key) — keyed by the Better Auth user id.
+    // ── Multi-user: every cheptel table carries the owning user (a Better Auth user id). Pre-existing
+    //    rows get user_id = NULL (orphans); the seed owner claims them on first login. ──
+    const enclosCols = yield* sql<{ name: string }>`SELECT name FROM pragma_table_info('enclos')`
+    if (!enclosCols.some((c) => c.name === 'user_id'))
+      yield* sql.unsafe(`ALTER TABLE enclos ADD COLUMN user_id TEXT`)
+    if (!haveCol.has('user_id')) yield* sql.unsafe(`ALTER TABLE mount ADD COLUMN user_id TEXT`)
+    yield* sql`CREATE INDEX IF NOT EXISTS idx_enclos_user ON enclos(user_id)`
+    yield* sql`DROP INDEX IF EXISTS idx_dragodinde_user` // renamed alongside the table
+    yield* sql`CREATE INDEX IF NOT EXISTS idx_mount_user ON mount(user_id)`
+    // Elapsed-time model: per-enclos last-tick timestamp. Existing enclos start "now" so they don't
+    // replay history on the first sweep.
+    if (!enclosCols.some((c) => c.name === 'ticked_at'))
+      yield* sql.unsafe(`ALTER TABLE enclos ADD COLUMN ticked_at INTEGER NOT NULL DEFAULT 0`)
+    yield* sql`UPDATE enclos SET ticked_at = ${Date.now()} WHERE ticked_at = 0`
+
+    // Per-user app settings (Discord webhook, encrypted AI key, per-species planner config).
     yield* sql`
       CREATE TABLE IF NOT EXISTS user_settings (
         user_id TEXT PRIMARY KEY NOT NULL,
         webhook_url TEXT NOT NULL DEFAULT '',
-        ai_key_enc TEXT
+        ai_key_enc TEXT,
+        species_config TEXT NOT NULL DEFAULT '{}'
       )
     `
+    const usCols = yield* sql<{ name: string }>`SELECT name FROM pragma_table_info('user_settings')`
+    if (!usCols.some((c) => c.name === 'species_config'))
+      yield* sql.unsafe(
+        `ALTER TABLE user_settings ADD COLUMN species_config TEXT NOT NULL DEFAULT '{}'`
+      )
 
     const writeEnclos = (e: Enclos) => sql`
       UPDATE enclos SET
@@ -331,8 +392,8 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
       WHERE id = ${e.id}
     `
 
-    const writeDrago = (d: Dragodinde) => sql`
-      UPDATE dragodinde SET
+    const writeDrago = (d: Mount) => sql`
+      UPDATE mount SET
         name = ${d.name},
         stat_endurance = ${d.stats.endurance},
         stat_maturite = ${d.stats.maturite},
@@ -352,6 +413,7 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
     `
 
     interface InsertOpts {
+      readonly species: Species
       readonly name?: string // omitted -> auto-named from the convention (colour+sex+keeper+grandparents)
       readonly enclosId?: number | null // default null = born into the stable
       readonly color?: string
@@ -365,30 +427,35 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
     const insertDrago = (opts: InsertOpts) =>
       Effect.gen(function* () {
         const uid = yield* requireUserId
+        const species = opts.species
         const gps = opts.grandparents ?? []
         const status = opts.status ?? 'fertile'
         const sex: Sex = opts.sex ?? 'F'
-        // Auto-name from the in-game convention when no explicit name is given — we know colour,
-        // sex and grandparents, so every breed/clone/capture lands findable in-game (not "Orchidée").
+        // Auto-name from the in-game convention (species-scoped) when no explicit name is given.
         const name =
           opts.name?.trim() ||
           (opts.color
-            ? buildName({ color: opts.color, sex, keeper: opts.keeper ?? false, grandparents: gps })
-            : 'Dragodinde')
+            ? buildName(species, {
+                color: opts.color,
+                sex,
+                keeper: opts.keeper ?? false,
+                grandparents: gps
+              })
+            : SPECIES[species].label)
         const rows = yield* sql<DragoRow>`
-          INSERT INTO dragodinde
-            (user_id, enclos_id, name, color, sex, status, fertile, keeper, parent_a_id, parent_b_id, grand_a, grand_b)
+          INSERT INTO mount
+            (user_id, species, enclos_id, name, color, sex, status, fertile, keeper, parent_a_id, parent_b_id, grand_a, grand_b)
           VALUES (
-            ${uid}, ${opts.enclosId ?? null}, ${name}, ${opts.color ?? ''}, ${sex},
+            ${uid}, ${species}, ${opts.enclosId ?? null}, ${name}, ${opts.color ?? ''}, ${sex},
             ${status}, ${status === 'sterile' ? 0 : 1}, ${opts.keeper ? 1 : 0},
             ${opts.parentA ?? null}, ${opts.parentB ?? null}, ${gps[0] ?? null}, ${gps[1] ?? null}
           ) RETURNING *
         `
-        // Registering a mount of a colour means you've obtained it in-game → its succès is
-        // unlocked. Auto-mark it for this user (idempotent) so the planner stops counting it.
-        if (opts.color && COLOR_BY_NAME.has(opts.color))
-          yield* sql`INSERT OR IGNORE INTO achievement (user_id, color) VALUES (${uid}, ${opts.color})`
-        return dragoFromRow(rows[0])
+        // Registering a mount of a colour means you've obtained it in-game → unlock its succès for
+        // this user+species (idempotent) so the planner stops counting it.
+        if (opts.color && byNameOf(species).has(opts.color))
+          yield* sql`INSERT OR IGNORE INTO achievement (user_id, species, color) VALUES (${uid}, ${species}, ${opts.color})`
+        return mountFromRow(rows[0])
       })
 
     /** Build the enclos list (with their mounts). userFilter null = everyone (the system/ticker view). */
@@ -398,15 +465,15 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
           userFilter === null
             ? yield* sql<EnclosRow>`SELECT * FROM enclos ORDER BY id`
             : yield* sql<EnclosRow>`SELECT * FROM enclos WHERE user_id = ${userFilter} ORDER BY id`
-        const dragoRows =
+        const mountRows =
           userFilter === null
-            ? yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE enclos_id IS NOT NULL ORDER BY id`
-            : yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE enclos_id IS NOT NULL AND user_id = ${userFilter} ORDER BY id`
-        const byEnclos = new Map<number, Array<Dragodinde>>()
-        for (const r of dragoRows) {
+            ? yield* sql<DragoRow>`SELECT * FROM mount WHERE enclos_id IS NOT NULL ORDER BY id`
+            : yield* sql<DragoRow>`SELECT * FROM mount WHERE enclos_id IS NOT NULL AND user_id = ${userFilter} ORDER BY id`
+        const byEnclos = new Map<number, Array<Mount>>()
+        for (const r of mountRows) {
           if (r.enclos_id == null) continue
           const list = byEnclos.get(r.enclos_id) ?? []
-          list.push(dragoFromRow(r))
+          list.push(mountFromRow(r))
           byEnclos.set(r.enclos_id, list)
         }
         const now = Date.now()
@@ -416,10 +483,9 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
             name: r.name,
             fuel: fuelFromRow(r),
             focus: sanitizeFocus(JSON.parse(r.focus) as ReadonlyArray<string>),
-            dragodindes: byEnclos.get(r.id) ?? []
+            mounts: byEnclos.get(r.id) ?? []
           }
           // Project forward by the ticks elapsed since the last persisted tick — WITHOUT writing.
-          // The sweep is what persists; reads just show the up-to-date state.
           const nTicks = Math.floor((now - (r.ticked_at ?? now)) / TICK_MS)
           return nTicks > 0 ? advanceEnclos(e, nTicks).enclos : e
         })
@@ -428,7 +494,6 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
     const all = Effect.gen(function* () {
       const uid = yield* requireUserId
       let list = yield* loadEnclos(uid)
-      // Every user starts with one enclos so the tracker is never empty.
       if (list.length === 0) {
         yield* createEnclos
         list = yield* loadEnclos(uid)
@@ -440,14 +505,14 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
     const stable = Effect.gen(function* () {
       const uid = yield* requireUserId
       const rows =
-        yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE enclos_id IS NULL AND user_id = ${uid} ORDER BY id`
-      return rows.map(dragoFromRow)
+        yield* sql<DragoRow>`SELECT * FROM mount WHERE enclos_id IS NULL AND user_id = ${uid} ORDER BY id`
+      return rows.map(mountFromRow)
     })
     /** Every mount this user owns, wherever it lives (for the recommender / AI inventory). */
     const allMounts = Effect.gen(function* () {
       const uid = yield* requireUserId
-      const rows = yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE user_id = ${uid} ORDER BY id`
-      return rows.map(dragoFromRow)
+      const rows = yield* sql<DragoRow>`SELECT * FROM mount WHERE user_id = ${uid} ORDER BY id`
+      return rows.map(mountFromRow)
     })
 
     const countEnclos = Effect.gen(function* () {
@@ -462,14 +527,14 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
         const uid = yield* requireUserId
         const rows = yield* sql<{
           n: number
-        }>`SELECT COUNT(*) AS n FROM dragodinde WHERE enclos_id = ${enclosId} AND user_id = ${uid}`
+        }>`SELECT COUNT(*) AS n FROM mount WHERE enclos_id = ${enclosId} AND user_id = ${uid}`
         return rows[0]?.n ?? 0
       })
     const countStable = Effect.gen(function* () {
       const uid = yield* requireUserId
       const rows = yield* sql<{
         n: number
-      }>`SELECT COUNT(*) AS n FROM dragodinde WHERE enclos_id IS NULL AND user_id = ${uid}`
+      }>`SELECT COUNT(*) AS n FROM mount WHERE enclos_id IS NULL AND user_id = ${uid}`
       return rows[0]?.n ?? 0
     })
 
@@ -486,7 +551,7 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
         name: `Enclosure ${id}`,
         fuel: emptyFuel(),
         focus: DEFAULT_FOCUS,
-        dragodindes: [] // starts empty
+        mounts: [] // starts empty
       })
     })
 
@@ -495,7 +560,7 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
         const uid = yield* requireUserId
         if ((yield* countEnclos) <= 1) return false
         // Mounts inside go back to the stable (not destroyed) — they're your collection.
-        yield* sql`UPDATE dragodinde SET enclos_id = NULL WHERE enclos_id = ${id} AND user_id = ${uid}`
+        yield* sql`UPDATE mount SET enclos_id = NULL WHERE enclos_id = ${id} AND user_id = ${uid}`
         yield* sql`DELETE FROM enclos WHERE id = ${id} AND user_id = ${uid}`
         return true
       })
@@ -506,7 +571,34 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
         const rows =
           yield* sql<EnclosRow>`SELECT * FROM enclos WHERE id = ${id} AND user_id = ${uid}`
         if (!rows[0]) return false
-        const r = rows[0]
+        let r = rows[0]
+
+        // Settle the ticks elapsed on the CURRENT fuel/focus and rebase ticked_at to now BEFORE
+        // applying the edit. The read-projection replays (now - ticked_at) ticks against whatever
+        // fuel/focus it finds; without rebasing, a freshly-set fuel value (or a freshly-checked
+        // bar) gets replayed across the whole gap since the last tick and instant-fills the gauges.
+        // That gap grows unbounded while an enclos sits idle (the sweep skips ticked_at for idle
+        // enclos) and is huge after a DB sync/restore — so a manual edit must take effect from now
+        // forward, never retroactively. Persist the genuinely-earned gains first so none are lost.
+        const now = Date.now()
+        const nTicks = Math.floor((now - (r.ticked_at ?? now)) / TICK_MS)
+        if (nTicks > 0) {
+          const dragos =
+            yield* sql<DragoRow>`SELECT * FROM mount WHERE enclos_id = ${id} ORDER BY id`
+          const before: Enclos = {
+            id: r.id,
+            name: r.name,
+            fuel: fuelFromRow(r),
+            focus: sanitizeFocus(JSON.parse(r.focus) as ReadonlyArray<string>),
+            mounts: dragos.map(mountFromRow)
+          }
+          const settled = advanceEnclos(before, nTicks).enclos
+          yield* writeEnclos(settled)
+          for (let i = 0; i < settled.mounts.length; i++)
+            if (changed(before.mounts[i], settled.mounts[i])) yield* writeDrago(settled.mounts[i])
+          r = (yield* sql<EnclosRow>`SELECT * FROM enclos WHERE id = ${id}`)[0]
+        }
+
         const fuel = fuelFromRow(r)
         if (body.fuel) {
           for (const k of FUEL_KEYS) {
@@ -518,15 +610,16 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
           ? sanitizeFocus(body.focus)
           : sanitizeFocus(JSON.parse(r.focus) as ReadonlyArray<string>)
         const name = typeof body.name === 'string' ? body.name.slice(0, 40) : r.name
-        yield* writeEnclos({ id, name, fuel, focus, dragodindes: [] })
+        yield* writeEnclos({ id, name, fuel, focus, mounts: [] })
+        yield* sql`UPDATE enclos SET ticked_at = ${now} WHERE id = ${id}`
 
-        // Focus changed -> resync each dragodinde's done-state (re-arm if newly
-        // unsatisfied; mark satisfied if it already meets the new focus -> no ping).
+        // Focus changed -> resync each mount's done-state (re-arm if newly unsatisfied; mark
+        // satisfied if it already meets the new focus -> no ping).
         if (Array.isArray(body.focus)) {
           const dragos =
-            yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE enclos_id = ${id} AND user_id = ${uid}`
+            yield* sql<DragoRow>`SELECT * FROM mount WHERE enclos_id = ${id} AND user_id = ${uid}`
           for (const dr of dragos) {
-            const d = dragoFromRow(dr)
+            const d = mountFromRow(dr)
             const synced = withDoneState(d, focus)
             if (synced.notified !== d.notified) yield* writeDrago(synced)
           }
@@ -538,8 +631,9 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
     const addDrago = (seed?: SeedInput) =>
       Effect.gen(function* () {
         const n = yield* countStable
-        if (n >= MAX_STABLE) return Option.none<Dragodinde>()
+        if (n >= MAX_STABLE) return Option.none<Mount>()
         const created = yield* insertDrago({
+          species: seed?.species ?? 'dragodinde',
           name: seed?.name, // undefined -> insertDrago auto-names from the convention
           color: seed?.color,
           sex: seed?.sex,
@@ -549,24 +643,27 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
       })
 
     /** Record a real breeding: baby born into the stable; both parents become sterile AND are
-     * auto-evicted from any enclos back to the stable (they can't usefully tick anymore). */
+     * auto-evicted from any enclos back to the stable. Same-species only. */
     const recordCross = (input: CrossInput) =>
       sql.withTransaction(
         Effect.gen(function* () {
           const uid = yield* requireUserId
           const parents = yield* sql<DragoRow>`
-            SELECT * FROM dragodinde WHERE id IN (${input.parentAId}, ${input.parentBId}) AND user_id = ${uid}
+            SELECT * FROM mount WHERE id IN (${input.parentAId}, ${input.parentBId}) AND user_id = ${uid}
           `
           const a = parents.find((p) => p.id === input.parentAId)
           const b = parents.find((p) => p.id === input.parentBId)
-          if (!a || !b) return Option.none<Dragodinde>()
-          // Only FÉCONDE mounts can breed; refuse anything else so a bad call can't sterilise a
-          // fertile/sterile mount (or a baby). Keepers are trophies — never breed them.
+          if (!a || !b) return Option.none<Mount>()
+          // Only FÉCONDE mounts can breed; refuse anything else. Keepers are trophies — never breed.
           if (statusFromRow(a) !== 'feconde' || statusFromRow(b) !== 'feconde')
-            return Option.none<Dragodinde>()
-          if (a.keeper === 1 || b.keeper === 1) return Option.none<Dragodinde>()
-          if ((yield* countStable) >= MAX_STABLE) return Option.none<Dragodinde>()
+            return Option.none<Mount>()
+          if (a.keeper === 1 || b.keeper === 1) return Option.none<Mount>()
+          // Same-species only — you cannot cross a dragodinde with a muldo/volkorne.
+          const species = normalizeSpecies(a.species)
+          if (species !== normalizeSpecies(b.species)) return Option.none<Mount>()
+          if ((yield* countStable) >= MAX_STABLE) return Option.none<Mount>()
           const baby = yield* insertDrago({
+            species,
             name: input.name, // auto-named from colour + sex + grandparents (parents' colours)
             color: input.color,
             sex: input.sex,
@@ -575,51 +672,55 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
             parentB: input.parentBId,
             grandparents: [a.color, b.color].filter((c) => !!c)
           })
-          yield* sql`UPDATE dragodinde SET status = 'sterile', fertile = 0, enclos_id = NULL
+          yield* sql`UPDATE mount SET status = 'sterile', fertile = 0, enclos_id = NULL
                      WHERE id IN (${input.parentAId}, ${input.parentBId}) AND user_id = ${uid}`
           return Option.some(baby)
         })
       )
 
-    /** Record a clonage: two same-generation steriles go in, ONE survives. The chosen survivor is
-     * refreshed to fertile (gauges reset to 0) keeping its own sex/colour/lineage; the other is
-     * consumed. No new mount is created — the survivor is the existing animal, just refreshed. */
+    /** Record a clonage: two same-generation steriles go in, ONE survives. Same-species only. */
     const recordClone = (input: CloneInput) =>
       sql.withTransaction(
         Effect.gen(function* () {
-          if (input.survivorId === input.consumedId) return Option.none<Dragodinde>()
+          if (input.survivorId === input.consumedId) return Option.none<Mount>()
           const uid = yield* requireUserId
           const rows = yield* sql<DragoRow>`
-            SELECT * FROM dragodinde WHERE id IN (${input.survivorId}, ${input.consumedId}) AND user_id = ${uid}
+            SELECT * FROM mount WHERE id IN (${input.survivorId}, ${input.consumedId}) AND user_id = ${uid}
           `
           const survivor = rows.find((p) => p.id === input.survivorId)
           const consumed = rows.find((p) => p.id === input.consumedId)
-          if (!survivor || !consumed) return Option.none<Dragodinde>()
-          // Both must be STÉRILE, never keepers, and of the SAME generation (colours may differ).
+          if (!survivor || !consumed) return Option.none<Mount>()
+          // Both must be STÉRILE, never keepers, SAME species, and of the SAME generation.
           if (statusFromRow(survivor) !== 'sterile' || statusFromRow(consumed) !== 'sterile')
-            return Option.none<Dragodinde>()
-          if (survivor.keeper === 1 || consumed.keeper === 1) return Option.none<Dragodinde>()
-          const genOf = (c: string | null) => (c ? (COLOR_BY_NAME.get(c)?.gen ?? 0) : 0)
+            return Option.none<Mount>()
+          if (survivor.keeper === 1 || consumed.keeper === 1) return Option.none<Mount>()
+          const species = normalizeSpecies(survivor.species)
+          if (species !== normalizeSpecies(consumed.species)) return Option.none<Mount>()
+          const byName = byNameOf(species)
+          const genOf = (c: string | null) => (c ? (byName.get(c)?.gen ?? 0) : 0)
           const gen = genOf(survivor.color)
-          if (gen === 0 || gen !== genOf(consumed.color)) return Option.none<Dragodinde>()
+          if (gen === 0 || gen !== genOf(consumed.color)) return Option.none<Mount>()
           // Consume the other; refresh the survivor in place (fertile again, gauges to 0).
-          yield* sql`DELETE FROM dragodinde WHERE id = ${input.consumedId} AND user_id = ${uid}`
+          yield* sql`DELETE FROM mount WHERE id = ${input.consumedId} AND user_id = ${uid}`
           yield* sql`
-            UPDATE dragodinde
+            UPDATE mount
             SET status = 'fertile', fertile = 1, notified = 0,
                 stat_endurance = 0, stat_maturite = 0, stat_amour = 0, stat_serenity = 0
             WHERE id = ${input.survivorId} AND user_id = ${uid}
           `
           const after =
-            yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE id = ${input.survivorId} AND user_id = ${uid}`
-          return Option.some(dragoFromRow(after[0]))
+            yield* sql<DragoRow>`SELECT * FROM mount WHERE id = ${input.survivorId} AND user_id = ${uid}`
+          return Option.some(mountFromRow(after[0]))
         })
       )
 
-    /** Bulk-insert mounts. enclosId null → straight into the stable; a valid enclos id fills that
-     * enclos to its 10-cap then spills the overflow into the stable. Returns the created list,
-     * how many landed in the enclos (toEnclos), and how many were skipped (everything full). */
-    const importMounts = (mounts: ReadonlyArray<ImportRow>, enclosId: number | null) =>
+    /** Bulk-insert mounts of ONE species (import is species-scoped). enclosId null → straight into
+     * the stable; a valid enclos id fills that enclos to its 10-cap then spills into the stable. */
+    const importMounts = (
+      mounts: ReadonlyArray<ImportRow>,
+      enclosId: number | null,
+      species: Species
+    ) =>
       sql.withTransaction(
         Effect.gen(function* () {
           const uid = yield* requireUserId
@@ -632,11 +733,10 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
           }
           let inEnclos = target !== null ? yield* countDragos(target) : 0
           let inStable = yield* countStable
-          const created: Dragodinde[] = []
+          const created: Mount[] = []
           let toEnclos = 0
           let skipped = 0
           for (const r of mounts) {
-            // Prefer the target enclos until its 10-cap, then spill into the stable, then skip.
             let place: number | null
             if (target !== null && inEnclos < MAX_DRAGODINDES) {
               place = target
@@ -650,6 +750,7 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
               continue
             }
             const d = yield* insertDrago({
+              species,
               enclosId: place,
               name: r.name, // undefined (e.g. AI-recorded capture) -> convention name
               color: r.color,
@@ -671,20 +772,20 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
         Effect.gen(function* () {
           const uid = yield* requireUserId
           const rows =
-            yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE id = ${id} AND user_id = ${uid}`
-          if (!rows[0]) return Option.none<Dragodinde>()
+            yield* sql<DragoRow>`SELECT * FROM mount WHERE id = ${id} AND user_id = ${uid}`
+          if (!rows[0]) return Option.none<Mount>()
           if (enclosId !== null) {
             const exists = yield* sql<{
               id: number
             }>`SELECT id FROM enclos WHERE id = ${enclosId} AND user_id = ${uid}`
-            if (!exists[0]) return Option.none<Dragodinde>()
+            if (!exists[0]) return Option.none<Mount>()
             if (rows[0].enclos_id !== enclosId && (yield* countDragos(enclosId)) >= MAX_DRAGODINDES)
-              return Option.none<Dragodinde>()
+              return Option.none<Mount>()
           }
-          yield* sql`UPDATE dragodinde SET enclos_id = ${enclosId} WHERE id = ${id} AND user_id = ${uid}`
+          yield* sql`UPDATE mount SET enclos_id = ${enclosId} WHERE id = ${id} AND user_id = ${uid}`
           const after =
-            yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE id = ${id} AND user_id = ${uid}`
-          return Option.some(dragoFromRow(after[0]))
+            yield* sql<DragoRow>`SELECT * FROM mount WHERE id = ${id} AND user_id = ${uid}`
+          return Option.some(mountFromRow(after[0]))
         })
       )
 
@@ -693,9 +794,9 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
         const uid = yield* requireUserId
         const rows = yield* sql<{
           id: number
-        }>`SELECT id FROM dragodinde WHERE id = ${id} AND user_id = ${uid}`
+        }>`SELECT id FROM mount WHERE id = ${id} AND user_id = ${uid}`
         if (!rows[0]) return false
-        yield* sql`DELETE FROM dragodinde WHERE id = ${id} AND user_id = ${uid}`
+        yield* sql`DELETE FROM mount WHERE id = ${id} AND user_id = ${uid}`
         return true
       })
 
@@ -703,13 +804,12 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
       Effect.gen(function* () {
         const uid = yield* requireUserId
         const rows = yield* sql<DragoRow & { focus: string | null }>`
-          SELECT d.*, e.focus AS focus FROM dragodinde d
+          SELECT d.*, e.focus AS focus FROM mount d
           LEFT JOIN enclos e ON e.id = d.enclos_id WHERE d.id = ${id} AND d.user_id = ${uid}
         `
-        if (!rows[0]) return Option.none<Dragodinde>()
-        // Stable mounts (no enclos) have no focus — done-state is vacuously false there.
+        if (!rows[0]) return Option.none<Mount>()
         const focus = sanitizeFocus(JSON.parse(rows[0].focus ?? '[]') as ReadonlyArray<string>)
-        const current = dragoFromRow(rows[0])
+        const current = mountFromRow(rows[0])
         const stats = { ...current.stats }
         if (body.stats) {
           for (const k of ['endurance', 'maturite', 'amour'] as const) {
@@ -725,15 +825,12 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
         const grandparents = Array.isArray(body.grandparents)
           ? body.grandparents.filter((c): c is string => typeof c === 'string' && !!c).slice(0, 2)
           : current.grandparents
-        // The name. An explicit name wins. Otherwise keep the current one — UNLESS it's an
-        // auto-generated convention name (parseName recognises it), in which case rebuild it from
-        // the patched parts so the in-game name never drifts from the mount's real sex/colour/
-        // lineage (an edited sex would otherwise leave a stale `-m-`, so a M×F pair reads as M×M).
+        // Keep an auto-generated convention name in sync with the patched parts (species-scoped).
         const name =
           typeof body.name === 'string'
             ? body.name.slice(0, 40)
-            : color && parseName(current.name)
-              ? buildName({ color, sex, keeper, grandparents })
+            : color && parseName(current.species, current.name)
+              ? buildName(current.species, { color, sex, keeper, grandparents })
               : current.name
         const next = withDoneState(
           {
@@ -757,8 +854,7 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
         return Option.some(next)
       })
 
-    /** Move many mounts to an enclos (filling to its 10-cap in the given order) or to the stable
-     * (enclosId null). Returns which ids actually moved + how many were skipped (enclos full). */
+    /** Move many mounts to an enclos (filling to its 10-cap in the given order) or to the stable. */
     const moveMany = (ids: ReadonlyArray<number>, enclosId: number | null) =>
       sql.withTransaction(
         Effect.gen(function* () {
@@ -769,9 +865,9 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
             for (const id of ids) {
               const cur = yield* sql<{
                 id: number
-              }>`SELECT id FROM dragodinde WHERE id = ${id} AND user_id = ${uid}`
+              }>`SELECT id FROM mount WHERE id = ${id} AND user_id = ${uid}`
               if (!cur[0]) continue
-              yield* sql`UPDATE dragodinde SET enclos_id = NULL WHERE id = ${id} AND user_id = ${uid}`
+              yield* sql`UPDATE mount SET enclos_id = NULL WHERE id = ${id} AND user_id = ${uid}`
               movedIds.push(id)
             }
             return { movedIds, skipped }
@@ -784,14 +880,14 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
           for (const id of ids) {
             const cur = yield* sql<{
               enclos_id: number | null
-            }>`SELECT enclos_id FROM dragodinde WHERE id = ${id} AND user_id = ${uid}`
+            }>`SELECT enclos_id FROM mount WHERE id = ${id} AND user_id = ${uid}`
             if (!cur[0]) continue // gone or not yours
             if (cur[0].enclos_id === enclosId) continue // already there — no-op
             if (count >= MAX_DRAGODINDES) {
               skipped++
               continue
             }
-            yield* sql`UPDATE dragodinde SET enclos_id = ${enclosId} WHERE id = ${id} AND user_id = ${uid}`
+            yield* sql`UPDATE mount SET enclos_id = ${enclosId} WHERE id = ${id} AND user_id = ${uid}`
             count++
             movedIds.push(id)
           }
@@ -819,10 +915,8 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
         })
       )
 
-    /** The notification sweep (system actor): advance every enclos by the ticks elapsed since its
-     *  last persisted tick, PERSIST the change + bump ticked_at, and collect the rising-edge
-     *  completions grouped by owning user. Idle enclos (no fuel/no elapsed) incur no writes.
-     *  `nowMs` is injectable for tests. */
+    /** The notification sweep (system actor): advance every enclos by the elapsed ticks, PERSIST the
+     *  change + bump ticked_at, and collect the rising-edge completions grouped by owning user. */
     const sweep = (nowMs: number = Date.now()) =>
       sql.withTransaction(
         Effect.gen(function* () {
@@ -832,34 +926,32 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
             const nTicks = Math.floor((nowMs - (r.ticked_at ?? nowMs)) / TICK_MS)
             if (nTicks <= 0) continue
             const dragos =
-              yield* sql<DragoRow>`SELECT * FROM dragodinde WHERE enclos_id = ${r.id} ORDER BY id`
+              yield* sql<DragoRow>`SELECT * FROM mount WHERE enclos_id = ${r.id} ORDER BY id`
             const e: Enclos = {
               id: r.id,
               name: r.name,
               fuel: fuelFromRow(r),
               focus: sanitizeFocus(JSON.parse(r.focus) as ReadonlyArray<string>),
-              dragodindes: dragos.map(dragoFromRow)
+              mounts: dragos.map(mountFromRow)
             }
             const result = advanceEnclos(e, nTicks)
             const enclosChanged =
               changed(result.enclos.fuel, e.fuel) || changed(result.enclos.focus, e.focus)
-            const dragoChanged = result.enclos.dragodindes.some((d, i) =>
-              changed(e.dragodindes[i], d)
-            )
+            const dragoChanged = result.enclos.mounts.some((d, i) => changed(e.mounts[i], d))
             if (!enclosChanged && !dragoChanged) continue // idle — no write
             if (enclosChanged) yield* writeEnclos(result.enclos)
-            for (let i = 0; i < result.enclos.dragodindes.length; i++) {
-              const after = result.enclos.dragodindes[i]
-              if (changed(e.dragodindes[i], after)) yield* writeDrago(after)
+            for (let i = 0; i < result.enclos.mounts.length; i++) {
+              const after = result.enclos.mounts[i]
+              if (changed(e.mounts[i], after)) yield* writeDrago(after)
             }
             yield* sql`UPDATE enclos SET ticked_at = ${nowMs} WHERE id = ${r.id}`
             const uid = r.user_id
             if (uid && (result.completed.length || result.becameFeconde.length)) {
               const items = byUser.get(uid) ?? []
               for (const d of result.completed)
-                items.push({ kind: 'focus', enclosName: e.name, focus: e.focus, dragodinde: d })
+                items.push({ kind: 'focus', enclosName: e.name, focus: e.focus, mount: d })
               for (const d of result.becameFeconde)
-                items.push({ kind: 'feconde', enclosName: e.name, focus: e.focus, dragodinde: d })
+                items.push({ kind: 'feconde', enclosName: e.name, focus: e.focus, mount: d })
               byUser.set(uid, items)
             }
           }
@@ -875,8 +967,7 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
         Effect.map((rows) => rows[0]?.webhook_url ?? '')
       )
 
-    /** The current user's Discord webhook ('' when unset, or in the system/ticker context — which
-     *  has no user; the Discord service then falls back to the legacy DISCORD_WEBHOOK_URL env). */
+    /** The current user's Discord webhook ('' when unset, or in the system/ticker context). */
     const getWebhook = Effect.gen(function* () {
       const uid = yield* FiberRef.get(currentUserId)
       if (!uid) return ''
@@ -893,8 +984,7 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
                    ON CONFLICT(user_id) DO UPDATE SET webhook_url = excluded.webhook_url`
       })
 
-    /** The current user's OpenAI key, decrypted (null if unset). Server-side only — never returned
-     *  to the client; the AI chat passes it straight to the OpenAI SDK. */
+    /** The current user's OpenAI key, decrypted (null if unset). Server-side only. */
     const getAiKey = Effect.gen(function* () {
       const uid = yield* requireUserId
       const rows = yield* sql<{
@@ -903,9 +993,7 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
       const enc = rows[0]?.ai_key_enc
       return enc ? decryptSecret(enc) : null
     })
-    /** Whether the current user has an AI key set (for the UI — without revealing the key). */
     const hasAiKey = getAiKey.pipe(Effect.map((k) => !!k))
-    /** Set (encrypted) or clear (empty string) the current user's OpenAI key. */
     const setAiKey = (key: string) =>
       Effect.gen(function* () {
         const uid = yield* requireUserId
@@ -914,27 +1002,50 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
                    ON CONFLICT(user_id) DO UPDATE SET ai_key_enc = excluded.ai_key_enc`
       })
 
-    const getAchievements = Effect.gen(function* () {
+    /** Per-species planner settings (the species_config JSON blob), merged over defaults. */
+    const getSpeciesConfig = Effect.gen(function* () {
       const uid = yield* requireUserId
       const rows = yield* sql<{
-        color: string
-      }>`SELECT color FROM achievement WHERE user_id = ${uid}`
-      return rows.map((r) => r.color)
+        species_config: string | null
+      }>`SELECT species_config FROM user_settings WHERE user_id = ${uid}`
+      let parsed: unknown = {}
+      try {
+        parsed = rows[0]?.species_config ? JSON.parse(rows[0].species_config) : {}
+      } catch {
+        parsed = {}
+      }
+      return mergeSpeciesConfig(parsed)
     })
-    /** Replace this user's whole succès set (only known colours are stored). */
-    const setAchievements = (colors: ReadonlyArray<string>) =>
+    const setSpeciesConfig = (cfg: SpeciesConfig) =>
+      Effect.gen(function* () {
+        const uid = yield* requireUserId
+        const json = JSON.stringify(mergeSpeciesConfig(cfg))
+        yield* sql`INSERT INTO user_settings (user_id, species_config) VALUES (${uid}, ${json})
+                   ON CONFLICT(user_id) DO UPDATE SET species_config = excluded.species_config`
+      })
+
+    /** This user's unlocked succès for a species. */
+    const getAchievements = (species: Species) =>
+      Effect.gen(function* () {
+        const uid = yield* requireUserId
+        const rows = yield* sql<{
+          color: string
+        }>`SELECT color FROM achievement WHERE user_id = ${uid} AND species = ${species}`
+        return rows.map((r) => r.color)
+      })
+    /** Replace this user's whole succès set for ONE species (only that species' colours are stored). */
+    const setAchievements = (species: Species, colors: ReadonlyArray<string>) =>
       sql.withTransaction(
         Effect.gen(function* () {
           const uid = yield* requireUserId
-          const valid = [...new Set(colors)].filter((c) => COLOR_BY_NAME.has(c))
-          yield* sql`DELETE FROM achievement WHERE user_id = ${uid}`
+          const byName = byNameOf(species)
+          const valid = [...new Set(colors)].filter((c) => byName.has(c))
+          yield* sql`DELETE FROM achievement WHERE user_id = ${uid} AND species = ${species}`
           for (const c of valid)
-            yield* sql`INSERT INTO achievement (user_id, color) VALUES (${uid}, ${c})`
+            yield* sql`INSERT INTO achievement (user_id, species, color) VALUES (${uid}, ${species}, ${c})`
           return valid
         })
       )
-
-    // (Per-user: each user gets their first enclos lazily in `all` — no global startup enclos.)
 
     // ── Seed migration: the configured owner claims all pre-multi-user (orphan, user_id IS NULL)
     //    rows on first login. Cheap-skips once there are no orphans left. ──
@@ -949,18 +1060,17 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
         }
         const orphans = yield* sql<{ n: number }>`SELECT
           (SELECT COUNT(*) FROM enclos WHERE user_id IS NULL)
-          + (SELECT COUNT(*) FROM dragodinde WHERE user_id IS NULL)
+          + (SELECT COUNT(*) FROM mount WHERE user_id IS NULL)
           + (SELECT COUNT(*) FROM achievement WHERE user_id IS NULL) AS n`
         if ((orphans[0]?.n ?? 0) === 0) {
           seedClaimChecked = true // nothing left to claim
           return
         }
-        // Owner = the user whose linked Discord account id matches SEED_OWNER_DISCORD_ID.
         const acc = yield* sql<{ accountId: string }>`
           SELECT accountId FROM account WHERE userId = ${userId} AND providerId = 'discord'`
         if (acc[0]?.accountId !== seedId) return // not the owner — leave the orphans for them
         yield* sql`UPDATE enclos SET user_id = ${userId} WHERE user_id IS NULL`
-        yield* sql`UPDATE dragodinde SET user_id = ${userId} WHERE user_id IS NULL`
+        yield* sql`UPDATE mount SET user_id = ${userId} WHERE user_id IS NULL`
         yield* sql`UPDATE achievement SET user_id = ${userId} WHERE user_id IS NULL`
         seedClaimChecked = true
       })
@@ -989,6 +1099,8 @@ export class Repo extends Effect.Service<Repo>()('app/Repo', {
       getAiKey,
       hasAiKey,
       setAiKey,
+      getSpeciesConfig,
+      setSpeciesConfig,
       getAchievements,
       setAchievements,
       claimOrphansIfSeedOwner

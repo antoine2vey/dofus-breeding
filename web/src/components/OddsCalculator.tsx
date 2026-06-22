@@ -1,19 +1,26 @@
-import { COLORS, crossOdds, GEN_COLOR, type Mount } from '@dd/core'
-import { useMemo, useState } from 'react'
-
-const RACES = COLORS.map((c) => c.name)
+import {
+  baseColorsOf,
+  colorsOf,
+  crossOdds,
+  genColorOf,
+  type Mount as SimParent,
+  type Species
+} from '@dd/core'
+import { useEffect, useMemo, useState } from 'react'
 
 function MountEditor({
   title,
   mount,
   level,
+  races,
   onMount,
   onLevel
 }: {
   title: string
-  mount: Mount
+  mount: SimParent
   level: number
-  onMount: (m: Mount) => void
+  races: readonly string[]
+  onMount: (m: SimParent) => void
   onLevel: (n: number) => void
 }) {
   const gps = mount.grandparents ?? ['', '']
@@ -28,7 +35,7 @@ function MountEditor({
       <label>
         Race
         <select value={mount.race} onChange={(e) => onMount({ ...mount, race: e.target.value })}>
-          {RACES.map((r) => (
+          {races.map((r) => (
             <option key={r} value={r}>
               {r}
             </option>
@@ -51,7 +58,7 @@ function MountEditor({
         Grand-parent 1 (parent de cette monture)
         <select value={gps[0] ?? ''} onChange={(e) => setGp(0, e.target.value)}>
           <option value="">— aucun (capturée) —</option>
-          {RACES.map((r) => (
+          {races.map((r) => (
             <option key={r} value={r}>
               {r}
             </option>
@@ -62,7 +69,7 @@ function MountEditor({
         Grand-parent 2
         <select value={gps[1] ?? ''} onChange={(e) => setGp(1, e.target.value)}>
           <option value="">— aucun (capturée) —</option>
-          {RACES.map((r) => (
+          {races.map((r) => (
             <option key={r} value={r}>
               {r}
             </option>
@@ -73,17 +80,28 @@ function MountEditor({
   )
 }
 
-export function OddsCalculator() {
-  const [a, setA] = useState<Mount>({
-    race: 'Amande et Dorée',
-    grandparents: ['Amande et Rousse', 'Amande et Dorée']
-  })
-  const [b, setB] = useState<Mount>({ race: 'Ebène', grandparents: ['Ebène', 'Indigo'] })
+export function OddsCalculator({ species }: { species: Species }) {
+  const races = useMemo(() => colorsOf(species).map((c) => c.name), [species])
+  const genColor = genColorOf(species)
+  const defaultBase = baseColorsOf(species)[0] ?? races[0] ?? ''
+
+  const [a, setA] = useState<SimParent>({ race: defaultBase, grandparents: ['', ''] })
+  const [b, setB] = useState<SimParent>({ race: defaultBase, grandparents: ['', ''] })
   const [lvlA, setLvlA] = useState(43)
   const [lvlB, setLvlB] = useState(44)
   const [optima, setOptima] = useState(false)
 
-  const result = useMemo(() => crossOdds(a, b, lvlA + lvlB, optima), [a, b, lvlA, lvlB, optima])
+  // Reset parent selections when the active species changes (colour palettes differ per species).
+  useEffect(() => {
+    setA({ race: defaultBase, grandparents: ['', ''] })
+    setB({ race: defaultBase, grandparents: ['', ''] })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [species])
+
+  const result = useMemo(
+    () => crossOdds(species, a, b, lvlA + lvlB, optima),
+    [species, a, b, lvlA, lvlB, optima]
+  )
 
   return (
     <div className="pane planner">
@@ -100,8 +118,22 @@ export function OddsCalculator() {
       </p>
 
       <div className="mount-grid">
-        <MountEditor title="Monture A" mount={a} level={lvlA} onMount={setA} onLevel={setLvlA} />
-        <MountEditor title="Monture B" mount={b} level={lvlB} onMount={setB} onLevel={setLvlB} />
+        <MountEditor
+          title="Monture A"
+          mount={a}
+          level={lvlA}
+          races={races}
+          onMount={setA}
+          onLevel={setLvlA}
+        />
+        <MountEditor
+          title="Monture B"
+          mount={b}
+          level={lvlB}
+          races={races}
+          onMount={setB}
+          onLevel={setLvlB}
+        />
       </div>
 
       <label className="chk" style={{ margin: '12px 0' }}>
@@ -127,7 +159,7 @@ export function OddsCalculator() {
             .filter((o) => o.prob > 0.0005)
             .map((o) => (
               <tr key={o.race} className={o.isTarget ? 'target-row' : ''}>
-                <td className="cnt" style={{ color: GEN_COLOR[o.gen] }}>
+                <td className="cnt" style={{ color: genColor[o.gen] }}>
                   {(o.prob * 100).toFixed(2)}%
                 </td>
                 <td className="nm">

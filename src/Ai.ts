@@ -1,5 +1,5 @@
 import { createOpenAI } from '@ai-sdk/openai'
-import type { AssistEnclos, AssistMount, ReproStatus } from '@dd/core'
+import type { AssistEnclos, AssistMount, ReproStatus, Species } from '@dd/core'
 import * as Core from '@dd/core'
 import { stepCountIs, streamText, tool } from 'ai'
 import { Config, Effect } from 'effect'
@@ -10,7 +10,10 @@ export interface ChatMessage {
   readonly content: string
 }
 
+/** The AI chats about ONE active species at a time (the app's global selection); the deterministic
+ *  cross-species view is exposed separately via the arbiter. */
 export interface ReplyOpts {
+  readonly species: Species
   readonly targetGen: number
   readonly level: number
   readonly optimakina: boolean
@@ -21,7 +24,8 @@ export interface ReplyOpts {
 /** Side-effecting bridge the HTTP layer provides: reads live state + mutates the tracker.
  * Keeps Ai.ts free of Effect/Repo — every method is plain-async (the AI SDK calls them). */
 export interface AiActions {
-  getState(): Promise<{ mounts: AssistMount[]; enclos: AssistEnclos[] }>
+  getState(): Promise<{ mounts: Array<AssistMount & { species: Species }>; enclos: AssistEnclos[] }>
+
   moveMounts(ids: number[], enclosId: number | null): Promise<{ moved: number; skipped: number }>
   setStatus(ids: number[], status: ReproStatus): Promise<{ updated: number }>
   setKeeper(ids: number[], keeper: boolean): Promise<{ updated: number }>
@@ -46,8 +50,9 @@ export interface AiActions {
   deleteMounts(ids: number[]): Promise<{ removed: number }>
 }
 
-const SYSTEM = `Tu es le contremaître d'élevage de dragodindes (Dofus). Tu pilotes, pas à pas, le
-plan pour atteindre la génération cible le plus vite, et tu AGIS sur le suiveur via les outils.
+const SYSTEM = `Tu es le contremaître d'élevage de montures (Dofus : dragodinde, muldo, volkorne).
+Tu travailles sur l'espèce active sélectionnée dans l'app. Tu pilotes, pas à pas, le plan pour
+atteindre la génération cible le plus vite, et tu AGIS sur le suiveur via les outils.
 
 RÈGLES :
 - Ne calcule JAMAIS toi-même un nombre, une probabilité, une paire ou un plan. Appelle « getPlan »
@@ -102,8 +107,8 @@ export class Ai extends Effect.Service<Ai>()('app/Ai', {
           inputSchema: z.object({ targetGen: z.number().int().min(2).max(10).optional() }),
           execute: async ({ targetGen }) => {
             const st = await actions.getState()
-            return Core.assistantPlan({
-              mounts: st.mounts,
+            return Core.assistantPlan(opts.species, {
+              mounts: st.mounts.filter((m) => m.species === opts.species),
               enclos: st.enclos,
               targetGen: targetGen ?? opts.targetGen,
               level: opts.level,
@@ -126,6 +131,7 @@ export class Ai extends Effect.Service<Ai>()('app/Ai', {
           }),
           execute: async (a) =>
             Core.crossOdds(
+              opts.species,
               { race: a.colorA, grandparents: a.grandparentsA ?? [] },
               { race: a.colorB, grandparents: a.grandparentsB ?? [] },
               a.sumParentLevels,
@@ -153,6 +159,7 @@ export class Ai extends Effect.Service<Ai>()('app/Ai', {
               }))
             const s = Core.monteCarlo(
               {
+                species: opts.species,
                 targetGen: a.targetGen,
                 level: a.level,
                 optimakina: a.optimakina,
@@ -180,7 +187,7 @@ export class Ai extends Effect.Service<Ai>()('app/Ai', {
             keeper: z.boolean().default(false)
           }),
           execute: async (a) => ({
-            name: Core.buildName({ color: a.color, sex: a.sex, keeper: a.keeper })
+            name: Core.buildName(opts.species, { color: a.color, sex: a.sex, keeper: a.keeper })
           })
         }),
 

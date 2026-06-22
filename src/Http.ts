@@ -2,10 +2,16 @@ import { fileURLToPath } from 'node:url'
 import {
   type AssistEnclos,
   type AssistMount,
+  arbitrate,
   assistantPlan,
   buildName,
+  normalizeSpecies,
   recommend,
-  resolveColor
+  resolveColor,
+  SPECIES,
+  SPECIES_LIST,
+  type Species,
+  type SpeciesConfig
 } from '@dd/core'
 import {
   FileSystem,
@@ -22,12 +28,12 @@ import { auth } from './auth.js'
 import { Discord } from './Discord.js'
 import {
   BARS,
-  type Dragodinde,
   FOCUSABLE,
   MAX_DRAGODINDES,
   MAX_ENCLOS,
   MAX_FOCUS,
   MAX_STABLE,
+  type Mount,
   SERENITY_GOAL,
   SERENITY_MAX,
   SERENITY_MIN,
@@ -47,7 +53,7 @@ import { requireUserId, withUser } from './tenant.js'
 /** The one projection from a stored Dragodinde to the planner's AssistMount. AssistMount is a
  *  superset of the recommender's InvMount, so this single adapter feeds /api/recommend,
  *  /api/assistant/plan, and the AI getState alike. */
-const toAssistMount = (d: Dragodinde): AssistMount => ({
+const toAssistMount = (d: Mount): AssistMount => ({
   id: d.id,
   name: d.name,
   color: d.color,
@@ -164,7 +170,11 @@ const router1 = HttpRouter.empty.pipe(
       const discord = yield* Discord
       const enclos = yield* repo.all
       const stable = yield* repo.stable
-      const achievements = yield* repo.getAchievements
+      // Achievements (succès) are per-species — colours overlap across species, so the goal sets
+      // must be keyed by species. The frontend pulls each species' colour/letter data from @dd/core.
+      const achievements: Record<string, ReadonlyArray<string>> = {}
+      for (const s of SPECIES_LIST) achievements[s] = yield* repo.getAchievements(s)
+      const speciesConfig = yield* repo.getSpeciesConfig
       const webhookConfigured = yield* discord.isConfigured
       const aiConfigured = yield* repo.hasAiKey
       const webhookUrl = yield* repo.getWebhook // owner's own webhook, for their settings input
@@ -173,7 +183,7 @@ const router1 = HttpRouter.empty.pipe(
         enclos,
         stable,
         achievements,
-        settings: { webhookConfigured, aiConfigured, webhookUrl },
+        settings: { webhookConfigured, aiConfigured, webhookUrl, speciesConfig },
         meta: {
           fuelBars: BARS,
           focusable: FOCUSABLE,
@@ -184,7 +194,14 @@ const router1 = HttpRouter.empty.pipe(
           serenityGoal: SERENITY_GOAL,
           tickMs,
           maxEnclos: MAX_ENCLOS,
-          maxDragodindes: MAX_DRAGODINDES
+          maxMounts: MAX_DRAGODINDES,
+          maxDragodindes: MAX_DRAGODINDES, // back-compat alias
+          species: SPECIES_LIST.map((s) => ({
+            species: s,
+            label: SPECIES[s].label,
+            icon: SPECIES[s].icon,
+            accent: SPECIES[s].accent
+          }))
         }
       })
     })
@@ -269,27 +286,29 @@ const router1 = HttpRouter.empty.pipe(
     Effect.gen(function* () {
       const repo = yield* Repo
       const body = (yield* readBody) as {
+        species?: string
         targetGen?: number
         level?: number
         optimakina?: boolean
         clonage?: boolean
         freeSlots?: number
       }
+      const species = normalizeSpecies(body.species)
       const enclos = yield* repo.all
       const all = yield* repo.allMounts // stable + enclos — the whole collection
       const emptySlots = enclos.reduce(
-        (s, e) => s + Math.max(0, MAX_DRAGODINDES - e.dragodindes.length),
+        (s, e) => s + Math.max(0, MAX_DRAGODINDES - e.mounts.length),
         0
       )
-      const mounts = all.map(toAssistMount)
-      const result = recommend({
+      const mounts = all.filter((m) => m.species === species).map(toAssistMount)
+      const result = recommend(species, {
         mounts,
         targetGen: typeof body.targetGen === 'number' ? body.targetGen : 10,
         freeSlots: typeof body.freeSlots === 'number' ? body.freeSlots : Math.max(1, emptySlots),
         level: typeof body.level === 'number' ? body.level : 60,
         optimakina: body.optimakina === true,
         clonage: body.clonage !== false,
-        achievements: yield* repo.getAchievements
+        achievements: yield* repo.getAchievements(species)
       })
       return HttpServerResponse.unsafeJson(result)
     })
@@ -300,28 +319,31 @@ const router1 = HttpRouter.empty.pipe(
     Effect.gen(function* () {
       const repo = yield* Repo
       const body = (yield* readBody) as {
+        species?: string
         targetGen?: number
         level?: number
         optimakina?: boolean
         clonage?: boolean
       }
+      const species = normalizeSpecies(body.species)
       const enclos = yield* repo.all
       const all = yield* repo.allMounts
-      const mounts = all.map(toAssistMount)
+      const mounts = all.filter((m) => m.species === species).map(toAssistMount)
+      // enclos count is the TOTAL (mixed-species) occupancy so free capacity is correct.
       const assistEnclos: AssistEnclos[] = enclos.map((e) => ({
         id: e.id,
         name: e.name,
         focus: [...e.focus],
-        count: e.dragodindes.length
+        count: e.mounts.length
       }))
-      const result = assistantPlan({
+      const result = assistantPlan(species, {
         mounts,
         enclos: assistEnclos,
         targetGen: typeof body.targetGen === 'number' ? body.targetGen : 10,
         level: typeof body.level === 'number' ? body.level : 60,
         optimakina: body.optimakina === true,
         clonage: body.clonage !== false,
-        achievements: yield* repo.getAchievements
+        achievements: yield* repo.getAchievements(species)
       })
       return HttpServerResponse.unsafeJson(result)
     })
@@ -341,11 +363,13 @@ const router1 = HttpRouter.empty.pipe(
       }
       const body = (yield* readBody) as {
         messages?: ChatMessage[]
+        species?: string
         targetGen?: number
         level?: number
         optimakina?: boolean
         clonage?: boolean
       }
+      const species = normalizeSpecies(body.species)
       // Bridge the AI's plain-async tools to the (Effect) repo. The tools run on detached fibers
       // (Effect.runPromise) that don't inherit this request's user scope, so each re-pins the
       // current user via withUser — otherwise the Repo's requireUserId would die.
@@ -357,12 +381,12 @@ const router1 = HttpRouter.empty.pipe(
           const enclos = await runScoped(repo.all)
           const all = await runScoped(repo.allMounts)
           return {
-            mounts: all.map(toAssistMount),
+            mounts: all.map((m) => ({ ...toAssistMount(m), species: m.species })),
             enclos: enclos.map((e) => ({
               id: e.id,
               name: e.name,
               focus: [...e.focus],
-              count: e.dragodindes.length
+              count: e.mounts.length
             }))
           }
         },
@@ -390,17 +414,17 @@ const router1 = HttpRouter.empty.pipe(
             onSome: (d) => ({ ok: true, cloneId: d.id })
           }),
         addMounts: async (p) => {
-          // Normalise the colour to its canonical name ("amande" → "Amande") and name each mount by
+          // Normalise the colour to its canonical name for the active species and name each mount by
           // the in-game convention (e.g. "a-f"), not the raw colour string.
-          const color = resolveColor(p.color) ?? p.color
-          const name = buildName({ color, sex: p.sex, keeper: false })
+          const color = resolveColor(species, p.color) ?? p.color
+          const name = buildName(species, { color, sex: p.sex, keeper: false })
           const rows = Array.from({ length: p.count }, () => ({
             name,
             color,
             sex: p.sex,
             status: p.status
           }))
-          const r = await runScoped(repo.importMounts(rows, null))
+          const r = await runScoped(repo.importMounts(rows, null, species))
           return { created: r.created.length }
         },
         addEnclos: async () =>
@@ -414,11 +438,12 @@ const router1 = HttpRouter.empty.pipe(
       const it = ai.reply(
         body.messages ?? [],
         {
+          species,
           targetGen: typeof body.targetGen === 'number' ? body.targetGen : 10,
           level: typeof body.level === 'number' ? body.level : 60,
           optimakina: body.optimakina === true,
           clonage: body.clonage !== false,
-          achievements: yield* repo.getAchievements
+          achievements: yield* repo.getAchievements(species)
         },
         actions,
         apiKey
@@ -516,7 +541,11 @@ const router2 = router1.pipe(
     '/api/import',
     Effect.gen(function* () {
       const repo = yield* Repo
-      const body = (yield* readBody) as { mounts?: ImportRow[]; enclosId?: number | null }
+      const body = (yield* readBody) as {
+        mounts?: ImportRow[]
+        enclosId?: number | null
+        species?: string
+      }
       if (!Array.isArray(body.mounts)) {
         return HttpServerResponse.unsafeJson({ error: 'import requires mounts[]' }, { status: 400 })
       }
@@ -525,7 +554,11 @@ const router2 = router1.pipe(
           !!m && typeof m.color === 'string' && (m.sex === 'M' || m.sex === 'F')
       )
       const enclosId = typeof body.enclosId === 'number' ? body.enclosId : null
-      const { created, skipped, toEnclos } = yield* repo.importMounts(valid, enclosId)
+      const { created, skipped, toEnclos } = yield* repo.importMounts(
+        valid,
+        enclosId,
+        normalizeSpecies(body.species)
+      )
       return HttpServerResponse.unsafeJson({
         created: created.length,
         skipped,
@@ -589,12 +622,19 @@ const router2 = router1.pipe(
     Effect.gen(function* () {
       const repo = yield* Repo
       const discord = yield* Discord
-      const body = (yield* readBody) as { webhookUrl?: unknown; aiKey?: unknown }
+      const body = (yield* readBody) as {
+        webhookUrl?: unknown
+        aiKey?: unknown
+        speciesConfig?: unknown
+      }
       if (typeof body.webhookUrl === 'string') yield* repo.setWebhook(body.webhookUrl.trim())
       if (typeof body.aiKey === 'string') yield* repo.setAiKey(body.aiKey) // "" clears it
+      if (body.speciesConfig && typeof body.speciesConfig === 'object')
+        yield* repo.setSpeciesConfig(body.speciesConfig as SpeciesConfig)
       const webhookConfigured = yield* discord.isConfigured
       const aiConfigured = yield* repo.hasAiKey
-      return HttpServerResponse.unsafeJson({ webhookConfigured, aiConfigured })
+      const speciesConfig = yield* repo.getSpeciesConfig
+      return HttpServerResponse.unsafeJson({ webhookConfigured, aiConfigured, speciesConfig })
     })
   ),
 
@@ -611,12 +651,43 @@ const router2 = router1.pipe(
     '/api/achievements',
     Effect.gen(function* () {
       const repo = yield* Repo
-      const body = (yield* readBody) as { colors?: unknown }
+      const body = (yield* readBody) as { species?: string; colors?: unknown }
       const colors = Array.isArray(body.colors)
         ? body.colors.filter((c): c is string => typeof c === 'string')
         : []
-      const saved = yield* repo.setAchievements(colors)
+      const saved = yield* repo.setAchievements(normalizeSpecies(body.species), colors)
       return HttpServerResponse.unsafeJson({ achievements: saved })
+    })
+  ),
+
+  // Cross-species next-step: run the per-species recommender, then allocate the shared enclos slot
+  // pool across all enabled species into one ranked action list.
+  HttpRouter.post(
+    '/api/arbiter',
+    Effect.gen(function* () {
+      const repo = yield* Repo
+      const body = (yield* readBody) as { freeSlots?: number }
+      const enclos = yield* repo.all
+      const all = yield* repo.allMounts
+      const emptySlots = enclos.reduce(
+        (s, e) => s + Math.max(0, MAX_DRAGODINDES - e.mounts.length),
+        0
+      )
+      const config = yield* repo.getSpeciesConfig
+      const mountsBySpecies: Partial<Record<Species, AssistMount[]>> = {}
+      const achievementsBySpecies: Partial<Record<Species, ReadonlyArray<string>>> = {}
+      for (const s of SPECIES_LIST) {
+        if (!config[s]?.enabled) continue
+        mountsBySpecies[s] = all.filter((m) => m.species === s).map(toAssistMount)
+        achievementsBySpecies[s] = yield* repo.getAchievements(s)
+      }
+      const result = arbitrate({
+        config,
+        mountsBySpecies,
+        achievementsBySpecies,
+        freeSlots: typeof body.freeSlots === 'number' ? body.freeSlots : Math.max(1, emptySlots)
+      })
+      return HttpServerResponse.unsafeJson(result)
     })
   )
 )

@@ -1,4 +1,4 @@
-import { COLOR_BY_NAME, GEN_COLOR } from '@dd/core'
+import { genColorOf, genOf, SPECIES } from '@dd/core'
 import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { useState } from 'react'
 import type { Dragodinde, ReproStatus } from '../types'
@@ -8,9 +8,9 @@ const STATUS_LABEL: Record<ReproStatus, string> = {
   fertile: 'Fertile',
   sterile: 'Stérile'
 }
-const genOf = (color: string) => COLOR_BY_NAME.get(color)?.gen ?? 0
 
-/** A stable mount, draggable onto an enclos. */
+/** A stable mount, draggable onto an enclos. Cross-species: colour/gen lookups are scoped to
+ *  the mount's own species and a species badge prefixes the name. */
 function StableChip({ m }: { m: Dragodinde }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: `mount-${m.id}` })
   return (
@@ -22,7 +22,10 @@ function StableChip({ m }: { m: Dragodinde }) {
       style={{ opacity: isDragging ? 0.35 : 1 }}
       title="Glisse vers un enclos"
     >
-      <b className="sc-name" style={{ color: GEN_COLOR[genOf(m.color)] }}>
+      <b className="sc-name" style={{ color: genColorOf(m.species)[genOf(m.species, m.color)] }}>
+        <span className="sc-species" title={SPECIES[m.species].label}>
+          {SPECIES[m.species].icon}
+        </span>{' '}
         {m.name}
       </b>
       <span className="sc-meta muted">
