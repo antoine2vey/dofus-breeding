@@ -31,9 +31,9 @@ const preMigrationCounts = (file: string) =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient
       // The mounts table is `dragodinde` pre-migration; tolerate an already-migrated `mount` too.
-      const tables = (
-        yield* sql<{ name: string }>`SELECT name FROM sqlite_master WHERE type='table'`
-      ).map((r) => r.name)
+      const tables = (yield* sql<{
+        name: string
+      }>`SELECT name FROM sqlite_master WHERE type='table'`).map((r) => r.name)
       const mounts = tables.includes('mount')
         ? yield* sql<{ n: number }>`SELECT COUNT(*) AS n FROM mount`
         : yield* sql<{ n: number }>`SELECT COUNT(*) AS n FROM dragodinde`
@@ -60,25 +60,25 @@ describe('species migration on the real prod snapshot', () => {
           Effect.gen(function* () {
             yield* Repo // constructing the service runs the migration
             const sql = yield* SqlClient.SqlClient
-            const tables = (
-              yield* sql<{ name: string }>`SELECT name FROM sqlite_master WHERE type='table'`
-            ).map((r) => r.name)
-            const mountCols = (
-              yield* sql<{ name: string }>`SELECT name FROM pragma_table_info('mount')`
-            ).map((r) => r.name)
+            const tables = (yield* sql<{
+              name: string
+            }>`SELECT name FROM sqlite_master WHERE type='table'`).map((r) => r.name)
+            const mountCols = (yield* sql<{
+              name: string
+            }>`SELECT name FROM pragma_table_info('mount')`).map((r) => r.name)
             const achPk = yield* sql<{
               name: string
               pk: number
             }>`SELECT name, pk FROM pragma_table_info('achievement')`
-            const usCols = (
-              yield* sql<{ name: string }>`SELECT name FROM pragma_table_info('user_settings')`
-            ).map((r) => r.name)
-            const enclosCols = (
-              yield* sql<{ name: string }>`SELECT name FROM pragma_table_info('enclos')`
-            ).map((r) => r.name)
-            const idx = (
-              yield* sql<{ name: string }>`SELECT name FROM sqlite_master WHERE type='index'`
-            ).map((r) => r.name)
+            const usCols = (yield* sql<{
+              name: string
+            }>`SELECT name FROM pragma_table_info('user_settings')`).map((r) => r.name)
+            const enclosCols = (yield* sql<{
+              name: string
+            }>`SELECT name FROM pragma_table_info('enclos')`).map((r) => r.name)
+            const idx = (yield* sql<{
+              name: string
+            }>`SELECT name FROM sqlite_master WHERE type='index'`).map((r) => r.name)
             const mounts = yield* sql<{ n: number }>`SELECT COUNT(*) AS n FROM mount`
             const mountsDrago = yield* sql<{
               n: number
@@ -139,9 +139,9 @@ describe('species migration on the real prod snapshot', () => {
             const sql = yield* SqlClient.SqlClient
             const mounts = yield* sql<{ n: number }>`SELECT COUNT(*) AS n FROM mount`
             const achs = yield* sql<{ n: number }>`SELECT COUNT(*) AS n FROM achievement`
-            const tables = (
-              yield* sql<{ name: string }>`SELECT name FROM sqlite_master WHERE type='table'`
-            ).map((r) => r.name)
+            const tables = (yield* sql<{
+              name: string
+            }>`SELECT name FROM sqlite_master WHERE type='table'`).map((r) => r.name)
             return { mounts: mounts[0].n, achs: achs[0].n, tables }
           })
         )
