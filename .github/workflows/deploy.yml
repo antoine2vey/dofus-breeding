@@ -1,0 +1,97 @@
+name: CI / Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel an in-flight run for the same ref when a new push lands.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Tests run on GitHub's free hosted runners (isolated, no load on the VPS).
+  # ---------------------------------------------------------------------------
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint / format check
+        run: npm run format:check
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+  # ---------------------------------------------------------------------------
+  # Deploy runs on the self-hosted runner installed on this VPS.
+  # Gated on: tests green AND a push to main (never on PRs).
+  # It operates on the canonical working copy at /var/www/dofus-breeding so the
+  # real .env (gitignored) and the dragodinde-data volume are reused in place.
+  # ---------------------------------------------------------------------------
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, dofus-deploy]
+    # The deploy step cd's into the live dir, so we don't need actions/checkout
+    # cluttering the runner's _work directory.
+    steps:
+      - name: Build, migrate & restart
+        working-directory: /var/www/dofus-breeding
+        run: |
+          set -euo pipefail
+          echo "::group::Sync source to origin/main"
+          git fetch --all --prune
+          git reset --hard origin/main
+          echo "::endgroup::"
+
+          echo "::group::Build image"
+          docker compose build
+          echo "::endgroup::"
+
+          # The Better Auth migration wants the app stopped to avoid SQLite
+          # write-lock contention (see docker-compose.yml). Brief downtime.
+          echo "::group::Run schema migration"
+          docker compose stop app || true
+          docker compose run --rm migrate
+          echo "::endgroup::"
+
+          echo "::group::(Re)start app"
+          docker compose up -d
+          echo "::endgroup::"
+
+          echo "::group::Prune dangling images"
+          docker image prune -f
+          echo "::endgroup::"
+
+      - name: Wait for healthy
+        working-directory: /var/www/dofus-breeding
+        run: |
+          set -euo pipefail
+          echo "Waiting for the app container to report healthy..."
+          for i in $(seq 1 30); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' dragodinde-notif 2>/dev/null || echo "missing")
+            echo "  [$i] health=$status"
+            if [ "$status" = "healthy" ]; then
+              echo "App is healthy ✅"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "App did not become healthy in time ❌"
+          docker compose logs --tail 50 app || true
+          exit 1
