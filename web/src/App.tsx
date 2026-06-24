@@ -31,7 +31,7 @@ const TABS = [
 function LoginWall() {
   return (
     <div className="login-wall">
-      <h1>🐉 Élevage Dofus</h1>
+      <h1>🐉 Élevage</h1>
       <p>
         Suis ta reproduction de montures (dragodinde · muldo · volkorne). Connecte-toi avec Discord
         pour commencer.
@@ -169,7 +169,7 @@ export default function App() {
   return (
     <>
       <header>
-        <h1>🐉 Élevage Dofus</h1>
+        <h1>🐉 Élevage</h1>
         {enabledSpecies.length > 1 && (
           <select
             className="species-selector"
