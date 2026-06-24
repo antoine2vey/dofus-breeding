@@ -157,6 +157,15 @@ export function recommend(species: Species, input: RecommendInput): Recommendati
       // parents, so this never drops legitimate progress; it just stops cannibalising a scarce
       // colour to remake an equal/cheaper one.
       if (maxOutVal <= Math.max(value(m.color), value(f.color))) continue
+      // A cross is only worth a féconde mount's life if its VISÉ colour (the one it's scored for)
+      // is ALSO its single most likely outcome. Otherwise we'd sacrifice a mount on a sub-top shot:
+      // a 3% missing colour the value-bonus inflated to the top, or a visé that loses to a more
+      // probable sibling (e.g. 42% vs 38%). Require the driver to be the strict, unique prob-max.
+      const driver = driverOf(r.outcomes)
+      if (!driver) continue
+      const probMax = r.outcomes.reduce((best, o) => (o.prob > best.prob ? o : best))
+      const tiedAtTop = r.outcomes.some((o) => o.race !== probMax.race && o.prob >= probMax.prob)
+      if (driver.race !== probMax.race || tiedAtTop) continue
       scored.push({ m, f, score, r })
     }
   }
