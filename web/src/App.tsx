@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { api, type Me, setUnauthorizedHandler } from './api'
 import { AssistantTab } from './components/AssistantTab'
 import { BreedingTree } from './components/BreedingTree'
@@ -11,8 +12,20 @@ import { SettingsDialog } from './components/SettingsDialog'
 import { SuccesTab } from './components/SuccesTab'
 import type { AppState, DragoPatch, EnclosPatch, Species } from './types'
 
-type Tab = 'tracker' | 'herd' | 'assistant' | 'succes' | 'planner' | 'odds' | 'naming'
 type SettingsSection = 'webhook' | 'ai' | 'species'
+
+// Each tab is a real route, so a refresh / deep link lands back on the same tab. Paths are the
+// source of truth for "which tab is active"; per-page filters live in the query string (see the
+// individual tab components + useSearchParamState).
+const TABS = [
+  { path: '/enclos', label: 'Enclos' },
+  { path: '/etable', label: 'Étable' },
+  { path: '/assistant', label: 'Assistant' },
+  { path: '/succes', label: 'Succès' },
+  { path: '/planificateur', label: 'Planificateur' },
+  { path: '/probabilites', label: 'Probabilités' },
+  { path: '/nommage', label: 'Nommage' }
+] as const
 
 /** Logged-out landing — the only thing reachable without a Better Auth session. */
 function LoginWall() {
@@ -35,8 +48,9 @@ export default function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined) // undefined = checking
   const [activeId, setActiveId] = useState<number | null>(null)
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null)
-  const [tab, setTab] = useState<Tab>('tracker')
   const [wizardOpen, setWizardOpen] = useState(false)
+  const navigate = useNavigate()
+  const { pathname } = useLocation()
   const onboardChecked = useRef(false)
   // The globally-selected species drives the per-species reference tabs (Succès/Naming/Roster/Odds/
   // Tree). The herd/enclos + assistant stay cross-species. Persisted across reloads.
@@ -171,48 +185,15 @@ export default function App() {
           </select>
         )}
         <nav className="tabs">
-          <button
-            className={'tab' + (tab === 'tracker' ? ' active' : '')}
-            onClick={() => setTab('tracker')}
-          >
-            Enclos
-          </button>
-          <button
-            className={'tab' + (tab === 'herd' ? ' active' : '')}
-            onClick={() => setTab('herd')}
-          >
-            Étable
-          </button>
-          <button
-            className={'tab' + (tab === 'assistant' ? ' active' : '')}
-            onClick={() => setTab('assistant')}
-          >
-            Assistant
-          </button>
-          <button
-            className={'tab' + (tab === 'succes' ? ' active' : '')}
-            onClick={() => setTab('succes')}
-          >
-            Succès
-          </button>
-          <button
-            className={'tab' + (tab === 'planner' ? ' active' : '')}
-            onClick={() => setTab('planner')}
-          >
-            Planificateur
-          </button>
-          <button
-            className={'tab' + (tab === 'odds' ? ' active' : '')}
-            onClick={() => setTab('odds')}
-          >
-            Probabilités
-          </button>
-          <button
-            className={'tab' + (tab === 'naming' ? ' active' : '')}
-            onClick={() => setTab('naming')}
-          >
-            Nommage
-          </button>
+          {TABS.map((t) => (
+            <button
+              key={t.path}
+              className={'tab' + (pathname === t.path ? ' active' : '')}
+              onClick={() => navigate(t.path)}
+            >
+              {t.label}
+            </button>
+          ))}
         </nav>
         <div className="settings">
           <button className="ghost" title="Tutoriel" onClick={() => setWizardOpen(true)}>
@@ -238,49 +219,79 @@ export default function App() {
         </div>
       </header>
 
-      {tab === 'tracker' ? (
-        <EnclosWorkspace
-          enclos={enclos}
-          stable={stable}
-          activeId={activeId}
-          meta={meta}
-          onSelect={setActiveId}
-          onEnclosPatch={onEnclosPatch}
-          onEnclosAdd={onEnclosAdd}
-          onEnclosDelete={onEnclosDelete}
-          onDragoPatch={onDragoPatch}
-          onDragoMove={onDragoMove}
-          onDragoDelete={onDragoDelete}
+      <Routes>
+        <Route
+          path="/enclos"
+          element={
+            <EnclosWorkspace
+              enclos={enclos}
+              stable={stable}
+              activeId={activeId}
+              meta={meta}
+              onSelect={setActiveId}
+              onEnclosPatch={onEnclosPatch}
+              onEnclosAdd={onEnclosAdd}
+              onEnclosDelete={onEnclosDelete}
+              onDragoPatch={onDragoPatch}
+              onDragoMove={onDragoMove}
+              onDragoDelete={onDragoDelete}
+            />
+          }
         />
-      ) : tab === 'herd' ? (
-        <div className="split">
-          <HerdTab enclos={enclos} stable={stable} onChanged={refresh} />
-        </div>
-      ) : tab === 'assistant' ? (
-        <div className="split">
-          <AssistantTab enclos={enclos} stable={stable} onChanged={refresh} />
-        </div>
-      ) : tab === 'succes' ? (
-        <div className="split">
-          <SuccesTab
-            species={species}
-            achievements={achievements[species] ?? []}
-            onChanged={refresh}
-          />
-        </div>
-      ) : tab === 'planner' ? (
-        <div className="split">
-          <BreedingTree species={species} mounts={allMounts} />
-        </div>
-      ) : tab === 'odds' ? (
-        <div className="split">
-          <OddsCalculator species={species} />
-        </div>
-      ) : (
-        <div className="split">
-          <NamingTab species={species} />
-        </div>
-      )}
+        <Route
+          path="/etable"
+          element={
+            <div className="split">
+              <HerdTab enclos={enclos} stable={stable} onChanged={refresh} />
+            </div>
+          }
+        />
+        <Route
+          path="/assistant"
+          element={
+            <div className="split">
+              <AssistantTab enclos={enclos} stable={stable} onChanged={refresh} />
+            </div>
+          }
+        />
+        <Route
+          path="/succes"
+          element={
+            <div className="split">
+              <SuccesTab
+                species={species}
+                achievements={achievements[species] ?? []}
+                onChanged={refresh}
+              />
+            </div>
+          }
+        />
+        <Route
+          path="/planificateur"
+          element={
+            <div className="split">
+              <BreedingTree species={species} mounts={allMounts} />
+            </div>
+          }
+        />
+        <Route
+          path="/probabilites"
+          element={
+            <div className="split">
+              <OddsCalculator species={species} />
+            </div>
+          }
+        />
+        <Route
+          path="/nommage"
+          element={
+            <div className="split">
+              <NamingTab species={species} />
+            </div>
+          }
+        />
+        <Route path="*" element={<Navigate to="/enclos" replace />} />
+      </Routes>
 
       <SettingsDialog
         open={settingsSection !== null}

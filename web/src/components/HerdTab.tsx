@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { api } from '../api'
 import type { Dragodinde, Enclos, ReproStatus, Sex } from '../types'
 import { useMutation } from '../useMutation'
+import { useSearchParamState, useStringParam } from '../useSearchParamState'
 import { ImportByName } from './ImportByName'
 
 // In-game reproduction states, ordered most→least useful for breeding.
@@ -51,14 +52,24 @@ export function HerdTab({
     () => mounts.find((m) => m.species)?.species ?? SPECIES_LIST[0]
   )
 
-  // Filters + bulk selection (the "Toutes les montures" table)
-  const [fText, setFText] = useState('')
-  const [fColor, setFColor] = useState('')
-  const [fGen, setFGen] = useState<number | ''>('')
-  const [fSex, setFSex] = useState<Sex | ''>('')
-  const [fStatus, setFStatus] = useState<ReproStatus | ''>('')
-  const [fKeeper, setFKeeper] = useState<'' | 'yes' | 'no'>('')
-  const [fLieu, setFLieu] = useState<number | 'stable' | ''>('')
+  // Filters live in the URL query string, so a refresh / shared link keeps the same view.
+  const [fText, setFText] = useStringParam('q', '')
+  const [fColor, setFColor] = useStringParam('color', '')
+  const [fGen, setFGen] = useSearchParamState<number | ''>(
+    'gen',
+    '',
+    (raw) => (raw === '' ? '' : Number(raw)),
+    (v) => (v === '' ? null : String(v))
+  )
+  const [fSex, setFSex] = useStringParam<Sex | ''>('sex', '')
+  const [fStatus, setFStatus] = useStringParam<ReproStatus | ''>('status', '')
+  const [fKeeper, setFKeeper] = useStringParam<'' | 'yes' | 'no'>('keeper', '')
+  const [fLieu, setFLieu] = useSearchParamState<number | 'stable' | ''>(
+    'lieu',
+    '',
+    (raw) => (raw === 'stable' ? 'stable' : Number(raw)),
+    (v) => (v === '' ? null : String(v))
+  )
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [bulkMsg, setBulkMsg] = useState('')
   const [bulkDest, setBulkDest] = useState<number | 'stable'>('stable')

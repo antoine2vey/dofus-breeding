@@ -14,6 +14,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api'
 import type { Dragodinde, Enclos, ReproStatus, Sex } from '../types'
 import { useMutation } from '../useMutation'
+import { useBoolParam, useIntParam, useStringParam } from '../useSearchParamState'
 
 const STATUS_LABEL: Record<ReproStatus, string> = {
   feconde: 'féconde',
@@ -462,11 +463,12 @@ export function AssistantTab({
   onChanged: () => void
 }) {
   // ── Per-species roadmap controls (the read-only Layer A/B plan is single-species) ──
-  const [roadmapSpecies, setRoadmapSpecies] = useState<Species>('dragodinde')
-  const [targetGen, setTargetGen] = useState(10)
-  const [level, setLevel] = useState(40)
-  const [optimakina, setOptimakina] = useState(false)
-  const [clonage, setClonage] = useState(true)
+  // Roadmap controls live in the URL query string — refresh / shared link reproduces the same plan.
+  const [roadmapSpecies, setRoadmapSpecies] = useStringParam<Species>('sp', 'dragodinde')
+  const [targetGen, setTargetGen] = useIntParam('gen', 10)
+  const [level, setLevel] = useIntParam('level', 40)
+  const [optimakina, setOptimakina] = useBoolParam('optima', true)
+  const [clonage, setClonage] = useBoolParam('clonage', true)
   const [plan, setPlan] = useState<AssistantPlan | null>(null)
   const [planErr, setPlanErr] = useState<string | null>(null)
   const [planLoading, setPlanLoading] = useState(false) // the (read-only) plan recompute is busy

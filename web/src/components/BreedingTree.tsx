@@ -11,8 +11,9 @@ import {
   type SimMount,
   type Species
 } from '@dd/core'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Mount } from '../types'
+import { useBoolParam, useIntParam, useStringParam } from '../useSearchParamState'
 
 /** Your real mounts -> sim feedstock (skip uncoloured & keepers; sterile = clonage feedstock). */
 const toSimInventory = (mounts: Mount[]): SimMount[] =>
@@ -137,15 +138,22 @@ export function BreedingTree({ species, mounts }: { species: Species; mounts: Mo
 
   // Default target = first top-gen colour of THIS species.
   const defaultTarget = topColors[0] ?? colors[colors.length - 1]?.name ?? ''
-  const [target, setTarget] = useState(defaultTarget)
-  const [level, setLevel] = useState(60)
-  const [optima, setOptima] = useState(false)
-  const [clonage, setClonage] = useState(true)
-  const [useCheptel, setUseCheptel] = useState(true)
+  // Controls live in the URL query string — refresh / shared link reproduces the same tree.
+  const [target, setTarget] = useStringParam('target', defaultTarget)
+  const [level, setLevel] = useIntParam('level', 60)
+  const [optima, setOptima] = useBoolParam('optima', true)
+  const [clonage, setClonage] = useBoolParam('clonage', true)
+  const [useCheptel, setUseCheptel] = useBoolParam('cheptel', true)
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(['root']))
 
-  // Reset selection/expansion when the active species changes.
+  // Reset selection/expansion when the active species CHANGES — but not on first mount, or we'd
+  // clobber a target restored from the URL with this species' default.
+  const firstRender = useRef(true)
   useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false
+      return
+    }
     setTarget(defaultTarget)
     setExpanded(new Set(['root']))
     // eslint-disable-next-line react-hooks/exhaustive-deps
