@@ -158,14 +158,20 @@ export function recommend(species: Species, input: RecommendInput): Recommendati
       // colour to remake an equal/cheaper one.
       if (maxOutVal <= Math.max(value(m.color), value(f.color))) continue
       // A cross is only worth a féconde mount's life if its VISÉ colour (the one it's scored for)
-      // is ALSO its single most likely outcome. Otherwise we'd sacrifice a mount on a sub-top shot:
-      // a 3% missing colour the value-bonus inflated to the top, or a visé that loses to a more
-      // probable sibling (e.g. 42% vs 38%). Require the driver to be the strict, unique prob-max.
+      // sits at the TOP of the probability table — never a sub-top longshot the value-bonus
+      // inflated (a 3% missing colour while 70% is junk) or a visé that loses to a more probable
+      // sibling (42% vs 38%). But a TIE at the top is fine WHEN every colour sharing the top is
+      // itself a step-up: a 35/35 split across two missing gen-4 colours is a 70% shot at new
+      // progress, not a coin-flip half-wasted. So: the driver must be at the top prob tier, and
+      // every outcome tied there must itself out-value the priciest parent (else half the odds
+      // just remake a parent/junk — still a bad bet).
       const driver = driverOf(r.outcomes)
       if (!driver) continue
+      const parentVal = Math.max(value(m.color), value(f.color))
       const probMax = r.outcomes.reduce((best, o) => (o.prob > best.prob ? o : best))
-      const tiedAtTop = r.outcomes.some((o) => o.race !== probMax.race && o.prob >= probMax.prob)
-      if (driver.race !== probMax.race || tiedAtTop) continue
+      const topOutcomes = r.outcomes.filter((o) => o.prob >= probMax.prob)
+      if (!topOutcomes.some((o) => o.race === driver.race)) continue
+      if (topOutcomes.some((o) => value(o.race) <= parentVal)) continue
       scored.push({ m, f, score, r })
     }
   }

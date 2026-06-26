@@ -66,6 +66,24 @@ describe('recommend', () => {
     expect(rec.breed[0].intended).toBe('Amande et Dorée')
   })
 
+  it('keeps a cross whose top probability TIES across two wanted colours', () => {
+    // Amande et Rousse (g2) × Indigo (g3) splits ~35/35 over two MISSING gen-4 colours
+    // (Amande et Indigo / Indigo et Rousse) — a 70% shot at new progress. The old "driver must be
+    // the unique strict prob-max" rule threw this out on the tie; it must now survive.
+    const rec = recommend('dragodinde', {
+      ...base,
+      level: 100,
+      optimakina: true, // the gen-4 recombination (and thus the 35/35 split) needs optima
+      clonage: false,
+      mounts: [
+        mount({ id: 1, color: 'Amande et Rousse', sex: 'M', grandparents: ['Amande', 'Rousse'] }),
+        mount({ id: 2, color: 'Indigo', sex: 'F', grandparents: ['Rousse', 'Amande et Dorée'] })
+      ]
+    })
+    expect(rec.breed).toHaveLength(1)
+    expect(['Amande et Indigo', 'Indigo et Rousse']).toContain(rec.breed[0].intended)
+  })
+
   it('breed actions come back ranked by score (descending)', () => {
     const rec = recommend('dragodinde', {
       ...base,
