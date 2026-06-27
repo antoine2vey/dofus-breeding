@@ -11,8 +11,7 @@ describe('extractionCandidates', () => {
       achievements: ['Amande et Dorée', 'Amande'],
       targetGen,
       level: 100,
-      optima: true,
-      clonage: false
+      optima: true
     })
 
   it('offers every non-keeper copy of a terminal done colour, excludes gen 1 and keepers', () => {
@@ -49,8 +48,7 @@ describe('extractionCandidates', () => {
       achievements: ['Indigo', 'Ebène'],
       targetGen: 10,
       level: 100,
-      optima: true,
-      clonage: false
+      optima: true
     })
     expect(a.plan.demand.Indigo).toBeGreaterThan(0) // still being produced
     const cands = extractionCandidates('dragodinde', mounts, a)

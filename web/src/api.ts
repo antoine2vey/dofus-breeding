@@ -17,7 +17,6 @@ export interface RecommendBody {
   targetGen?: number
   level?: number
   optimakina?: boolean
-  clonage?: boolean
   freeSlots?: number
 }
 
@@ -165,7 +164,6 @@ export const api = {
     targetGen: number
     level: number
     optimakina: boolean
-    clonage: boolean
   }) =>
     fetch('/api/assistant/plan', {
       method: 'POST',
@@ -178,7 +176,6 @@ export const api = {
     targetGen: number
     level: number
     optimakina: boolean
-    clonage: boolean
     items: { color: string; count: number }[]
   }) =>
     fetch('/api/extract', {

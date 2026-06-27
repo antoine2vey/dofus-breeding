@@ -14,8 +14,7 @@ describe('cheptelAccounting', () => {
       achievements: ['Dorée'], // succès for a colour you DON'T own
       targetGen: 3,
       level: 100,
-      optima: true,
-      clonage: true
+      optima: true
     })
     expect(acc.usableStock.Rousse).toBe(1) // only the féconde one is breeding supply
     expect(acc.ownedStock.Rousse).toBe(2) // both are held
@@ -35,16 +34,14 @@ describe('cheptelAccounting', () => {
       achievements: allUpToGen2,
       targetGen: 2,
       level: 100,
-      optima: true,
-      clonage: true
+      optima: true
     })
     const without = cheptelAccounting('dragodinde', {
       mounts: [],
       achievements: [],
       targetGen: 2,
       level: 100,
-      optima: true,
-      clonage: true
+      optima: true
     })
     expect(without.plan.totalCaptures).toBeGreaterThan(0) // nothing owned → must build everything
     expect(withSucces.plan.totalCaptures).toBe(0) // every sink ≤ gen 2 already satisfied

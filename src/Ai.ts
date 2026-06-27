@@ -17,7 +17,6 @@ export interface ReplyOpts {
   readonly targetGen: number
   readonly level: number
   readonly optimakina: boolean
-  readonly clonage: boolean
   readonly achievements: ReadonlyArray<string>
 }
 
@@ -113,7 +112,6 @@ export class Ai extends Effect.Service<Ai>()('app/Ai', {
               targetGen: targetGen ?? opts.targetGen,
               level: opts.level,
               optimakina: opts.optimakina,
-              clonage: opts.clonage,
               achievements: opts.achievements
             })
           }

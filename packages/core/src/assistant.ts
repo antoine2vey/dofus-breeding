@@ -11,7 +11,7 @@
 import { cheptelAccounting } from './cheptel.js'
 import { type ExtractionCandidate, extractionCandidates } from './extraction.js'
 import { type BreedAction, type InvMount, type ReproStatus, recommend } from './recommend.js'
-import { colorsOf, genOf, type Species } from './species.js'
+import { baseColorsOf, colorsOf, genOf, type Species } from './species.js'
 
 const ENCLOS_CAP = 10
 
@@ -36,7 +36,6 @@ export interface AssistantInput {
   readonly targetGen: number
   readonly level: number
   readonly optimakina: boolean
-  readonly clonage: boolean
   /** Colours whose achievement (succès) is already unlocked — satisfy the goal even if not owned,
    *  but never breeding supply (a done colour that's a parent of the target is still produced). */
   readonly achievements?: ReadonlyArray<string>
@@ -89,6 +88,12 @@ export interface NextStep {
   readonly breed: ReadonlyArray<BreedAction>
   readonly clone: ReadonlyArray<CloneAction>
   readonly capture: ReadonlyArray<CaptureNeed>
+  /** OPTIONAL extra base captures to occupy enclos slots the raise list + plan-required captures
+   *  leave idle. Pure capacity-fill — never plan-required; capped at each base's remaining
+   *  parent-consumption so we never suggest catching a mount the plan can't use. */
+  readonly fillCaptures: ReadonlyArray<CaptureNeed>
+  /** Free enclos capacity left after placing every existing raise candidate (before captures). */
+  readonly idleSlots: number
   readonly done: boolean
   readonly summary: string
 }
@@ -104,7 +109,7 @@ export interface AssistantPlan {
 // TOTAL (mixed-species) occupancy so free capacity is correct. Cross-species slot arbitration of
 // the next-step lives in the arbiter (arbiter.ts) — this produces one species' roadmap + next-step.
 export function assistantPlan(species: Species, input: AssistantInput): AssistantPlan {
-  const { mounts, enclos, targetGen, level, optimakina, clonage } = input
+  const { mounts, enclos, targetGen, level, optimakina } = input
   const gen = (c: string) => genOf(species, c)
 
   // ── Layer A: roadmap from the shared cheptel accounting (stock sets + deterministic plan) ──
@@ -113,8 +118,7 @@ export function assistantPlan(species: Species, input: AssistantInput): Assistan
     achievements: input.achievements,
     targetGen,
     level,
-    optima: optimakina,
-    clonage
+    optima: optimakina
   })
   const { done, obtained, ownedStock, plan } = acc
   const gens: RoadmapGenGroup[] = plan.groups
@@ -158,7 +162,6 @@ export function assistantPlan(species: Species, input: AssistantInput): Assistan
     freeSlots: 999, // we want every productive féconde pair, not a per-round cap
     level,
     optimakina,
-    clonage,
     achievements: input.achievements,
     accounting: acc // reuse the accounting already built — don't derive the plan a second time
   })
@@ -238,6 +241,40 @@ export function assistantPlan(species: Species, input: AssistantInput): Assistan
       reason: `monte ${e.ids.length} monture(s) jusqu'à féconde (endurance/maturité/amour à 20K)`
     }))
 
+  // ── Capacity-fill captures. After raising every existing candidate AND the plan-required
+  //    captures (which each need a slot once caught), any STILL-idle enclos capacity is wasted: the
+  //    clonage plan would otherwise recycle steriles slowly, serially, to make these parents. So
+  //    surface extra base captures to occupy the spare slots and ripen those parents in parallel —
+  //    optional, never plan-required, and capped per base at its remaining parent-consumption so we
+  //    never suggest catching a mount the plan can't ever breed. ──
+  const idleSlots = totalFree // free capacity the existing raise candidates couldn't fill
+  const planCaptureTotal = rec.capture.reduce((n, c) => n + c.count, 0)
+  const fillCaptures: CaptureNeed[] = []
+  // Slots still empty once the plan-required captures (also raised) take theirs.
+  let spareSlots = Math.max(0, idleSlots - planCaptureTotal)
+  if (spareSlots > 0) {
+    const planReq = (c: string) => Math.round(plan.baseCaptures[c] ?? 0)
+    // Headroom = parent-uses the plan still needs of this base beyond usable stock + planned
+    // captures. Catching past it just makes idle mounts the plan never breeds.
+    const headroom = (c: string) => Math.max(0, want(c) - (acc.usableStock[c] ?? 0) - planReq(c))
+    const bases = baseColorsOf(species)
+      .filter((c) => headroom(c) > 0)
+      .sort((a, b) => headroom(b) - headroom(a) || gen(a) - gen(b))
+    const take: Record<string, number> = {}
+    // Round-robin the catchable bases (neediest first) so the fill spreads the pipeline evenly.
+    for (let progress = true; progress && spareSlots > 0; ) {
+      progress = false
+      for (const c of bases) {
+        if (spareSlots <= 0) break
+        if ((take[c] ?? 0) >= headroom(c)) continue
+        take[c] = (take[c] ?? 0) + 1
+        spareSlots--
+        progress = true
+      }
+    }
+    for (const c of bases) if ((take[c] ?? 0) > 0) fillCaptures.push({ color: c, count: take[c] })
+  }
+
   const clone: CloneAction[] = rec.recycle
     .filter((r) => r.kind === 'clone' && r.ids.length >= 2)
     .map((r) => ({ aId: r.ids[0], bId: r.ids[1], color: r.color, reason: r.reason }))
@@ -249,6 +286,8 @@ export function assistantPlan(species: Species, input: AssistantInput): Assistan
   if (clone.length) summaryParts.push(`${clone.length} clonage(s)`)
   const totalCapture = rec.capture.reduce((n, c) => n + c.count, 0)
   if (totalCapture) summaryParts.push(`${totalCapture} à capturer`)
+  const totalFill = fillCaptures.reduce((n, c) => n + c.count, 0)
+  if (totalFill) summaryParts.push(`${totalFill} à capturer (remplissage)`)
 
   // Once the objective is met there is no work — don't recommend wasteful breed/clone/capture.
   const nextStep: NextStep = reached
@@ -257,6 +296,8 @@ export function assistantPlan(species: Species, input: AssistantInput): Assistan
         breed: [],
         clone: [],
         capture: [],
+        fillCaptures: [],
+        idleSlots: 0,
         done: true,
         summary: `Objectif gen ${targetGen} atteint 🎉`
       }
@@ -265,6 +306,8 @@ export function assistantPlan(species: Species, input: AssistantInput): Assistan
         breed: rec.breed,
         clone,
         capture: rec.capture,
+        fillCaptures,
+        idleSlots,
         done: false,
         summary:
           summaryParts.join(' · ') || 'Rien à faire ce tour — capture des bases pour amorcer.'

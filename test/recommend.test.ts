@@ -9,7 +9,7 @@ const mount = (o: Partial<InvMount> & { id: number }): InvMount => ({
   grandparents: [],
   ...o
 })
-const base = { targetGen: 10, freeSlots: 99, level: 60, optimakina: false, clonage: true }
+const base = { targetGen: 10, freeSlots: 99, level: 60, optimakina: false }
 
 // recommend() drives the breed/capture/recycle suggestions. These hit its own interface (breed
 // actions, intended colour, scoring) rather than reaching it through assistantPlan.
@@ -74,7 +74,6 @@ describe('recommend', () => {
       ...base,
       level: 100,
       optimakina: true, // the gen-4 recombination (and thus the 35/35 split) needs optima
-      clonage: false,
       mounts: [
         mount({ id: 1, color: 'Amande et Rousse', sex: 'M', grandparents: ['Amande', 'Rousse'] }),
         mount({ id: 2, color: 'Indigo', sex: 'F', grandparents: ['Rousse', 'Amande et Dorée'] })

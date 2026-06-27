@@ -7,7 +7,8 @@ import type {
   CloneAction,
   ExtractionCandidate,
   RaiseAction,
-  Species
+  Species,
+  SpeciesConfig
 } from '@dd/core'
 import { byNameOf, colorsOf, genColorOf, inGameCompare, SPECIES, SPECIES_LIST } from '@dd/core'
 import { useCallback, useEffect, useState } from 'react'
@@ -456,19 +457,25 @@ function ExtractionSection({
 export function AssistantTab({
   enclos,
   stable,
+  speciesConfig,
   onChanged
 }: {
   enclos: Enclos[]
   stable: Dragodinde[]
+  speciesConfig: SpeciesConfig
   onChanged: () => void
 }) {
   // ── Per-species roadmap controls (the read-only Layer A/B plan is single-species) ──
   // Roadmap controls live in the URL query string — refresh / shared link reproduces the same plan.
   const [roadmapSpecies, setRoadmapSpecies] = useStringParam<Species>('sp', 'dragodinde')
-  const [targetGen, setTargetGen] = useIntParam('gen', 10)
-  const [level, setLevel] = useIntParam('level', 40)
-  const [optimakina, setOptimakina] = useBoolParam('optima', true)
-  const [clonage, setClonage] = useBoolParam('clonage', true)
+  // Seed the roadmap controls from the SAVED per-species config — the same source the cross-species
+  // arbiter (global next-step) reads — so the single-species plan matches the global one by default
+  // instead of contradicting it. A URL param still wins when the user tweaks a control to explore a
+  // what-if; switching species re-seeds from that species' config (the fallbacks are read live).
+  const cfg = speciesConfig[roadmapSpecies]
+  const [targetGen, setTargetGen] = useIntParam('gen', cfg?.targetGen ?? 10)
+  const [level, setLevel] = useIntParam('level', cfg?.level ?? 100)
+  const [optimakina, setOptimakina] = useBoolParam('optima', cfg?.optimakina ?? true)
   const [plan, setPlan] = useState<AssistantPlan | null>(null)
   const [planErr, setPlanErr] = useState<string | null>(null)
   const [planLoading, setPlanLoading] = useState(false) // the (read-only) plan recompute is busy
@@ -490,7 +497,7 @@ export function AssistantTab({
     setPlanLoading(true)
     try {
       const [p, a] = await Promise.all([
-        api.assistantPlan({ species: roadmapSpecies, targetGen, level, optimakina, clonage }),
+        api.assistantPlan({ species: roadmapSpecies, targetGen, level, optimakina }),
         api.arbiter({})
       ])
       setPlan(p)
@@ -503,7 +510,7 @@ export function AssistantTab({
     } finally {
       setPlanLoading(false)
     }
-  }, [roadmapSpecies, targetGen, level, optimakina, clonage])
+  }, [roadmapSpecies, targetGen, level, optimakina])
 
   // Debounced so dragging the level input doesn't POST a plan on every keystroke.
   useEffect(() => {
@@ -531,7 +538,7 @@ export function AssistantTab({
   const applyClone = (a: CloneAction, survivorId: number) =>
     act(api.clone({ survivorId, consumedId: survivorId === a.aId ? a.bId : a.aId }))
   const applyExtract = (items: { color: string; count: number }[]) =>
-    act(api.extract({ species: roadmapSpecies, targetGen, level, optimakina, clonage, items }))
+    act(api.extract({ species: roadmapSpecies, targetGen, level, optimakina, items }))
   const applyCapture = (species: Species, color: string, count: number, sex: Sex) =>
     act(
       api.importMounts(
@@ -574,8 +581,7 @@ export function AssistantTab({
           species: roadmapSpecies,
           targetGen,
           level,
-          optimakina,
-          clonage
+          optimakina
         })
       })
       if (!res.ok || !res.body) {
@@ -627,6 +633,10 @@ export function AssistantTab({
   // Live context (from props — always fresh via the 3s poll)
   const stableByStatus = (st: ReproStatus) => stable.filter((m) => m.status === st).length
   const ns = plan?.nextStep
+  // The newest next-step fields can lag during a dev reload (server still on older core) — default
+  // them so a stale API response missing fillCaptures/idleSlots can never crash the tab.
+  const fillCaptures = ns?.fillCaptures ?? []
+  const idleSlots = ns?.idleSlots ?? 0
   // Resolve mount ids to their in-game (convention) names so steps are findable in the game.
   const nameById = new Map(
     [...stable, ...enclos.flatMap((e) => e.mounts)].map((m) => [m.id, m.name])
@@ -638,97 +648,49 @@ export function AssistantTab({
   const arbActions: ReadonlyArray<ArbiterAction> =
     arb && arb.allocated.length > 0 ? arb.allocated : (arb?.ranked ?? [])
 
+  // The cross-species arbiter only earns its place when ≥2 species compete for the shared enclos
+  // pool. With a single enabled species its output is identical to the per-species next-step below,
+  // so hide it and let that be the primary view.
+  const enabledCount = Object.values(speciesConfig).filter((c) => c.enabled).length
+
   return (
     <div className="pane planner assistant-v2">
       <div className="assistant-split">
         <div className="assistant-main">
-          {/* ── Cross-species next step (shared enclos slots) ── */}
-          <div className="policy-head">
-            <span>▶ Prochaine étape (toutes espèces)</span>
-            <span className="muted">
-              {arb
-                ? `${arb.usedSlots}/${arb.freeSlots} emplacements utilisés`
-                : 'classement des actions par priorité × valeur'}
-            </span>
-          </div>
-          {arbErr && <div className="decode-err">✗ {arbErr}</div>}
-          {arb && arbActions.length === 0 && (
-            <div className="muted small">
-              Rien à appliquer directement — capture des bases ou monte des montures.
-            </div>
+          {/* Cross-species arbiter — shown only when ≥2 species compete for the shared enclos pool.
+              With one enabled species it duplicates the per-species next-step below, so it's hidden. */}
+          {enabledCount >= 2 && (
+            <>
+              <div className="policy-head">
+                <span>▶ Prochaine étape (toutes espèces)</span>
+                <span className="muted">
+                  {arb
+                    ? `${arb.usedSlots}/${arb.freeSlots} emplacements utilisés`
+                    : 'classement des actions par priorité × valeur'}
+                </span>
+              </div>
+              {arbErr && <div className="decode-err">✗ {arbErr}</div>}
+              {arb && arbActions.length === 0 && (
+                <div className="muted small">
+                  Rien à appliquer directement — capture des bases ou monte des montures.
+                </div>
+              )}
+              {arbActions.length > 0 && (
+                <div className="step-group">
+                  {arbActions.map((a, i) => (
+                    <ArbiterRow
+                      key={`${a.species}-${a.kind}-${a.driver}-${a.breed?.aId ?? a.recycle?.ids[0] ?? i}`}
+                      a={a}
+                      busy={busy}
+                      onBreed={applyArbiterBreed}
+                      onClone={applyArbiterClone}
+                      onCapture={applyArbiterCapture}
+                    />
+                  ))}
+                </div>
+              )}
+            </>
           )}
-          {arbActions.length > 0 && (
-            <div className="step-group">
-              {arbActions.map((a, i) => (
-                <ArbiterRow
-                  key={`${a.species}-${a.kind}-${a.driver}-${a.breed?.aId ?? a.recycle?.ids[0] ?? i}`}
-                  a={a}
-                  busy={busy}
-                  onBreed={applyArbiterBreed}
-                  onClone={applyArbiterClone}
-                  onCapture={applyArbiterCapture}
-                />
-              ))}
-            </div>
-          )}
-
-          {/* Roadmap controls (single-species) */}
-          <div className="plan-controls" style={{ marginTop: 16 }}>
-            <label>
-              Espèce
-              <select
-                value={roadmapSpecies}
-                onChange={(e) => setRoadmapSpecies(e.target.value as Species)}
-              >
-                {SPECIES_LIST.map((s) => (
-                  <option key={s} value={s}>
-                    {SPECIES[s].icon} {SPECIES[s].label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Objectif
-              <select value={targetGen} onChange={(e) => setTargetGen(Number(e.target.value))}>
-                {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((g) => (
-                  <option key={g} value={g}>
-                    Atteindre Gen {g}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Niveau
-              <input
-                type="number"
-                min={1}
-                max={200}
-                value={level}
-                onChange={(e) =>
-                  setLevel(Math.min(200, Math.max(1, Math.floor(Number(e.target.value) || 1))))
-                }
-              />
-            </label>
-            <label className="chk">
-              <input
-                type="checkbox"
-                checked={optimakina}
-                onChange={(e) => setOptimakina(e.target.checked)}
-              />{' '}
-              Optimakina
-            </label>
-            <label className="chk">
-              <input
-                type="checkbox"
-                checked={clonage}
-                onChange={(e) => setClonage(e.target.checked)}
-              />{' '}
-              Clonage
-            </label>
-            <button className="ghost" disabled={busy} onClick={refetchPlan}>
-              {busy ? 'calcul…' : '↻ Recalculer'}
-            </button>
-          </div>
 
           {planErr && <div className="decode-err">✗ {planErr}</div>}
 
@@ -799,7 +761,12 @@ export function AssistantTab({
               </div>
               {ns &&
                 !ns.done &&
-                ns.raise.length + ns.breed.length + ns.clone.length + ns.capture.length === 0 && (
+                ns.raise.length +
+                  ns.breed.length +
+                  ns.clone.length +
+                  ns.capture.length +
+                  fillCaptures.length ===
+                  0 && (
                   <div className="muted small">
                     Rien à appliquer directement — capture des bases ou monte des montures.
                   </div>
@@ -867,6 +834,28 @@ export function AssistantTab({
                   {ns.capture.map((need) => (
                     <CaptureRow
                       key={need.color}
+                      species={roadmapSpecies}
+                      need={need}
+                      busy={busy}
+                      onApply={(c, s) => applyCapture(roadmapSpecies, need.color, c, s)}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* Capacity-fill: extra catchable bases to occupy idle enclos slots (optional). */}
+              {fillCaptures.length > 0 && (
+                <div className="step-group">
+                  <div className="step-title">
+                    🎯 Remplir les enclos{' '}
+                    <span className="muted small">
+                      optionnel — {idleSlots} emplacement(s) libre(s) après élevage : capture pour
+                      les occuper et paralléliser la montée
+                    </span>
+                  </div>
+                  {fillCaptures.map((need) => (
+                    <CaptureRow
+                      key={`fill-${need.color}`}
                       species={roadmapSpecies}
                       need={need}
                       busy={busy}
@@ -949,6 +938,56 @@ export function AssistantTab({
               />
             </>
           )}
+
+          {/* Roadmap controls — placed below the plan so the actionable next-step leads the panel. */}
+          <div className="plan-controls" style={{ marginTop: 16 }}>
+            <label>
+              Espèce
+              <select
+                value={roadmapSpecies}
+                onChange={(e) => setRoadmapSpecies(e.target.value as Species)}
+              >
+                {SPECIES_LIST.map((s) => (
+                  <option key={s} value={s}>
+                    {SPECIES[s].icon} {SPECIES[s].label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Objectif
+              <select value={targetGen} onChange={(e) => setTargetGen(Number(e.target.value))}>
+                {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((g) => (
+                  <option key={g} value={g}>
+                    Atteindre Gen {g}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Niveau
+              <input
+                type="number"
+                min={1}
+                max={200}
+                value={level}
+                onChange={(e) =>
+                  setLevel(Math.min(200, Math.max(1, Math.floor(Number(e.target.value) || 1))))
+                }
+              />
+            </label>
+            <label className="chk">
+              <input
+                type="checkbox"
+                checked={optimakina}
+                onChange={(e) => setOptimakina(e.target.checked)}
+              />{' '}
+              Optimakina
+            </label>
+            <button className="ghost" disabled={busy} onClick={refetchPlan}>
+              {busy ? 'calcul…' : '↻ Recalculer'}
+            </button>
+          </div>
         </div>
 
         <aside className="assistant-chat">

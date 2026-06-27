@@ -162,7 +162,7 @@ export function SettingsDialog({
           <h2>Espèces & objectifs</h2>
           <p className="hint">
             Active les espèces que tu élèves et règle, pour chacune, la génération visée, le niveau,
-            l'optimakina, le clonage et la priorité (poids de l'arbitre cross-espèces).
+            l'optimakina et la priorité (poids de l'arbitre cross-espèces).
           </p>
           <div className="species-settings">
             {speciesMeta.map((sm) => {
@@ -225,14 +225,6 @@ export function SettingsDialog({
                         onChange={(e) => patchSpecies(sp, { optimakina: e.target.checked })}
                       />
                       Optimakina
-                    </label>
-                    <label className="inline-check">
-                      <input
-                        type="checkbox"
-                        checked={s.clonage}
-                        onChange={(e) => patchSpecies(sp, { clonage: e.target.checked })}
-                      />
-                      Clonage
                     </label>
                   </div>
                 </fieldset>

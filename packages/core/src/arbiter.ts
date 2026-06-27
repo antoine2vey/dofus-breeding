@@ -75,7 +75,6 @@ export function arbitrate(input: ArbiterInput): ArbiterResult {
       freeSlots: 999, // uncapped — the arbiter does the cross-species allocation below
       level: cfg.level,
       optimakina: cfg.optimakina,
-      clonage: cfg.clonage,
       achievements
     })
     perSpecies[species] = rec

@@ -34,7 +34,6 @@ export interface RecommendInput {
   readonly freeSlots: number // how many breedings to recommend this round
   readonly level: number // assumed parent level for odds
   readonly optimakina: boolean
-  readonly clonage: boolean
   /** Colours whose achievement is already unlocked (succès). They satisfy the GOAL (sink/
    *  coverage) even if no mount is owned — but NOT breeding supply, so a done colour that's a
    *  parent of the target is still produced. */
@@ -91,15 +90,14 @@ export function recommend(species: Species, input: RecommendInput): Recommendati
 
   // The stock sets + plan come from one cheptel accounting (built here when called standalone, or
   // reused from assistantPlan). `obtained` = own OR succès; `plan.demand` = what's still needed.
-  const { obtained, plan } =
+  const { obtained, plan, usableStock } =
     input.accounting ??
     cheptelAccounting(species, {
       mounts,
       achievements: input.achievements,
       targetGen,
       level,
-      optima: optimakina,
-      clonage: input.clonage
+      optima: optimakina
     })
   const highestGen = Math.max(0, ...mounts.map((m) => gen(m.color)))
 
@@ -108,13 +106,16 @@ export function recommend(species: Species, input: RecommendInput): Recommendati
     .filter((c) => c.gen <= targetGen && !obtained.has(c.name))
     .map((c) => c.name)
 
-  // Value of producing a colour: spine progress ONLY if the plan still needs it (so a "done" or
-  // already-covered colour with zero demand scores ~0 and isn't bred), plus a coverage bonus for a
-  // goal colour we still lack (done colours are `obtained` → excluded from coverage).
+  // Value of producing a colour. Spine progress applies when the colour is still needed as breeding
+  // SUPPLY — i.e. it's consumed as a parent toward the target MORE times than we have usable mounts
+  // of it. Keyed on parent-requirement (consumed vs real stock), NOT on the post-recycling `demand`:
+  // cloning refreshes a sterile's fertility but never climbs a generation, so the climb itself must
+  // still be bred. A goal colour we still lack also gets a coverage bonus (done colours are
+  // `obtained` → excluded from coverage, so we don't re-breed an already-achieved terminal colour).
   const value = (race: string) => {
     const pot = POTENTIAL[race] ?? gen(race)
-    const needed = (plan.demand[race] ?? 0) > 0
-    let v = pot >= targetGen && needed ? Math.pow(3, gen(race)) : 0.001
+    const short = (plan.consumed[race] ?? 0) > (usableStock[race] ?? 0)
+    let v = pot >= targetGen && short ? Math.pow(3, gen(race)) : 0.001
     if (!obtained.has(race)) v += 1e6
     return v
   }
@@ -225,7 +226,9 @@ export function recommend(species: Species, input: RecommendInput): Recommendati
   const byColor = new Map<string, InvMount[]>()
   for (const m of sterile) (byColor.get(m.color) ?? byColor.set(m.color, []).get(m.color)!).push(m)
   const recycle: RecycleAction[] = []
-  if (input.clonage) {
+  // Clone recycling is always available (a standard mechanic) — pair same-colour steriles, neediest
+  // potential first, into a refreshed fertile survivor.
+  {
     const cloneGroups = [...byColor.entries()]
       .filter(([, g]) => g.length >= 2)
       .sort((a, b) => (POTENTIAL[b[0]] ?? 0) - (POTENTIAL[a[0]] ?? 0))

@@ -248,7 +248,6 @@ export interface SpeciesSettings {
   readonly targetGen: number
   readonly level: number
   readonly optimakina: boolean
-  readonly clonage: boolean
   readonly priority: number // arbiter weight; default 1
 }
 export type SpeciesConfig = Record<Species, SpeciesSettings>
@@ -259,7 +258,6 @@ export function defaultSpeciesSettings(s: Species): SpeciesSettings {
     targetGen: maxGenOf(s),
     level: 100,
     optimakina: true,
-    clonage: false,
     priority: 1
   }
 }

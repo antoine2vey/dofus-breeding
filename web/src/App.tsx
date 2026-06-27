@@ -250,7 +250,12 @@ export default function App() {
           path="/assistant"
           element={
             <div className="split">
-              <AssistantTab enclos={enclos} stable={stable} onChanged={refresh} />
+              <AssistantTab
+                enclos={enclos}
+                stable={stable}
+                speciesConfig={settings.speciesConfig}
+                onChanged={refresh}
+              />
             </div>
           }
         />

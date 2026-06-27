@@ -22,8 +22,7 @@ const plan = (mounts: AssistMount[], enclos: AssistEnclos[], targetGen = 4) =>
     enclos,
     targetGen,
     level: 100,
-    optimakina: true,
-    clonage: true
+    optimakina: true
   })
 
 describe('assistantPlan', () => {
@@ -80,6 +79,41 @@ describe('assistantPlan', () => {
     const raised = nextStep.raise.flatMap((r) => r.mountIds)
     expect(raised.length).toBeGreaterThan(6) // old one-pair-per-colour cap would stop at 6
     expect(raised.length).toBeLessThanOrEqual(10) // never exceeds free capacity
+  })
+
+  it('fillCaptures: occupies idle enclos capacity the raise list + planned captures leave empty', () => {
+    // Two big empty enclos (20 slots), zero existing mounts → nothing to raise. The from-scratch
+    // plan needs some base captures, but fewer than 20; the leftover slots get capacity-fill
+    // captures so no pen sits idle.
+    const enclos: AssistEnclos[] = [
+      { id: 1, name: 'E1', focus: [], count: 0 },
+      { id: 2, name: 'E2', focus: [], count: 0 }
+    ]
+    const { nextStep } = plan([], enclos, 4)
+    expect(nextStep.idleSlots).toBe(20) // nothing raised
+    const planTotal = nextStep.capture.reduce((n, c) => n + c.count, 0)
+    const fillTotal = nextStep.fillCaptures.reduce((n, c) => n + c.count, 0)
+    expect(fillTotal).toBeGreaterThan(0)
+    // Fill exactly soaks up the slots the plan-required captures don't claim.
+    expect(fillTotal).toBe(nextStep.idleSlots - planTotal)
+    // Only wild-catchable Gen-1 bases are ever suggested.
+    const bases = new Set(COLORS.filter((c) => !c.parents).map((c) => c.name))
+    for (const c of nextStep.fillCaptures) expect(bases.has(c.color)).toBe(true)
+  })
+
+  it('fillCaptures: empty when the plan-required captures already fill every idle slot', () => {
+    // One enclos (10 slots). The from-scratch gen-4 plan needs MORE than 10 base captures, so once
+    // those are caught the pen is full — no spare to fill, no extra suggestion.
+    const { nextStep } = plan([], [{ id: 1, name: 'E1', focus: [], count: 0 }], 4)
+    expect(nextStep.idleSlots).toBe(10)
+    expect(nextStep.capture.reduce((n, c) => n + c.count, 0)).toBeGreaterThanOrEqual(10)
+    expect(nextStep.fillCaptures).toHaveLength(0)
+  })
+
+  it('fillCaptures: empty when there is no idle capacity', () => {
+    const { nextStep } = plan([], [{ id: 1, name: 'Full', focus: [], count: 10 }], 4)
+    expect(nextStep.idleSlots).toBe(0)
+    expect(nextStep.fillCaptures).toHaveLength(0)
   })
 
   it('breed: pairs féconde mounts; clone: pairs same-colour steriles', () => {
@@ -142,7 +176,6 @@ describe('assistantPlan', () => {
       targetGen: 5,
       level: 100,
       optimakina: true,
-      clonage: true,
       achievements: doneGen4
     })
     const need: Record<string, number> = {}
@@ -163,8 +196,7 @@ describe('assistantPlan', () => {
       enclos: [],
       targetGen: 5,
       level: 100,
-      optimakina: true,
-      clonage: true
+      optimakina: true
     })
     const ctlNeed: Record<string, number> = {}
     for (const g of ctl.roadmap.gens) for (const r of g.rows) ctlNeed[r.color] = r.need

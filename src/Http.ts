@@ -299,7 +299,6 @@ const router1 = HttpRouter.empty.pipe(
         targetGen?: number
         level?: number
         optimakina?: boolean
-        clonage?: boolean
         freeSlots?: number
       }
       const species = normalizeSpecies(body.species)
@@ -316,7 +315,6 @@ const router1 = HttpRouter.empty.pipe(
         freeSlots: typeof body.freeSlots === 'number' ? body.freeSlots : Math.max(1, emptySlots),
         level: typeof body.level === 'number' ? body.level : 60,
         optimakina: body.optimakina === true,
-        clonage: body.clonage !== false,
         achievements: yield* repo.getAchievements(species)
       })
       return HttpServerResponse.unsafeJson(result)
@@ -332,7 +330,6 @@ const router1 = HttpRouter.empty.pipe(
         targetGen?: number
         level?: number
         optimakina?: boolean
-        clonage?: boolean
       }
       const species = normalizeSpecies(body.species)
       const enclos = yield* repo.all
@@ -351,7 +348,6 @@ const router1 = HttpRouter.empty.pipe(
         targetGen: typeof body.targetGen === 'number' ? body.targetGen : 10,
         level: typeof body.level === 'number' ? body.level : 60,
         optimakina: body.optimakina === true,
-        clonage: body.clonage !== false,
         achievements: yield* repo.getAchievements(species)
       })
       return HttpServerResponse.unsafeJson(result)
@@ -371,7 +367,6 @@ const router1 = HttpRouter.empty.pipe(
         targetGen?: number
         level?: number
         optimakina?: boolean
-        clonage?: boolean
         items?: { color?: string; count?: number }[]
       }
       const species = normalizeSpecies(body.species)
@@ -383,8 +378,7 @@ const router1 = HttpRouter.empty.pipe(
         achievements: yield* repo.getAchievements(species),
         targetGen: typeof body.targetGen === 'number' ? body.targetGen : 10,
         level: typeof body.level === 'number' ? body.level : 60,
-        optima: body.optimakina === true,
-        clonage: body.clonage !== false
+        optima: body.optimakina === true
       })
       const byColor = new Map(extractionCandidates(species, mounts, acc).map((c) => [c.color, c]))
 
@@ -441,7 +435,6 @@ const router1 = HttpRouter.empty.pipe(
         targetGen?: number
         level?: number
         optimakina?: boolean
-        clonage?: boolean
       }
       const species = normalizeSpecies(body.species)
       // Bridge the AI's plain-async tools to the (Effect) repo. The tools run on detached fibers
@@ -516,7 +509,6 @@ const router1 = HttpRouter.empty.pipe(
           targetGen: typeof body.targetGen === 'number' ? body.targetGen : 10,
           level: typeof body.level === 'number' ? body.level : 60,
           optimakina: body.optimakina === true,
-          clonage: body.clonage !== false,
           achievements: yield* repo.getAchievements(species)
         },
         actions,

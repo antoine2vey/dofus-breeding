@@ -20,7 +20,6 @@ export interface CheptelInput {
   readonly targetGen: number
   readonly level: number
   readonly optima: boolean
-  readonly clonage: boolean
 }
 
 export interface Cheptel {
@@ -65,7 +64,7 @@ export function cheptelAccounting(species: Species, input: CheptelInput): Chepte
     reproducteur: false,
     inventory: usableStock, // usable stock covers parent-uses
     ownedAny: sinkStock, // owned copy OR unlocked succès satisfies the sink
-    clonage: input.clonage,
+    clonage: true, // cloning is always available — steriles recycle into fertile parents
     gender: true
   })
 
